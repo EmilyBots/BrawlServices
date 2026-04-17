@@ -4,7 +4,7 @@
   "description": "Brawl Services™ Discord Bot – Boosting, Coaching, Accounts",
   "main": "src/index.js",
   "scripts": {
-    "start": "node src/index.js",
+    "start": "npm run deploy && node src/index.js"
     "dev": "nodemon src/index.js",
     "deploy": "node src/deploy-commands.js",
     "db:migrate": "node src/database/migrate.js"
