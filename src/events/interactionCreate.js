@@ -584,8 +584,10 @@ if (interaction.isStringSelectMenu()) {
     if (existing.length) {
       return interaction.followUp({ content: `⚠️ You already have an open ticket: <#${existing[0].channel_id}>`, ephemeral: true });
     }
-    const ch = await createTicket(interaction.guild, interaction.user, category);
-    return interaction.followUp({ content: `✅ Ticket created: ${ch}`, ephemeral: true });
+const ch = await createTicket(interaction.guild, interaction.user, category);
+const { coachingMainPanel } = require('../panels/coachingBooking');
+await ch.send(coachingMainPanel());
+return interaction.followUp({ content: `✅ Ticket created: ${ch}`, ephemeral: true });
   }
 }
 
