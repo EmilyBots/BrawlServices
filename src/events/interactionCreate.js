@@ -122,24 +122,68 @@ module.exports = {
 
         await db.query(`UPDATE orders SET payment_method=$1 WHERE id=$2`, [method, orderId]);
 
-        // ── Apple Pay / Google Pay → manual staff flow ──────────────────
+        // ── Apple Pay / Google Pay → Stripe Checkout ────────────────────
         if (method === 'applepay' || method === 'googlepay') {
-          const label = method === 'applepay' ? '🍎 Apple Pay' : '🔵 Google Pay';
-          const payEmbed = base(COLORS.INFO)
-            .setTitle(`${label} – Payment Instructions`)
-            .setDescription(
-              `**Order:** \`#${orderId.slice(0,8).toUpperCase()}\`\n` +
-              `**Amount:** **€${o.price}**\n\n` +
-              `Please open a ticket or contact a staff member — they will send you a payment link or request that supports **${label}**.\n\n` +
-              `> Your order is saved. A staff member will confirm payment and assign your booster.`
-            );
-
-          if (process.env.PAYMENT_LOG_CHANNEL_ID) {
-            const logCh = interaction.guild.channels.cache.get(process.env.PAYMENT_LOG_CHANNEL_ID);
-            if (logCh) logCh.send({ embeds: [base(COLORS.WARNING).setTitle(`💳 Payment Intent – ${label}`).setDescription(`<@${interaction.user.id}> selected **${method}** for order \`#${orderId.slice(0,8).toUpperCase()}\` (€${o.price})`)] });
+          if (!process.env.STRIPE_SECRET_KEY) {
+            return interaction.followUp({ content: '❌ Stripe is not configured. Please contact staff.', ephemeral: true });
           }
 
-          return interaction.followUp({ embeds: [payEmbed], ephemeral: true });
+          const label = method === 'applepay' ? '🍎 Apple Pay' : '🔵 Google Pay';
+          const shortId = orderId.slice(0, 8).toUpperCase();
+
+          try {
+            const stripeUtil = require('../utils/stripe');
+            const webUrl = process.env.WEB_URL || `http://localhost:${process.env.PORT || 3000}`;
+
+            const { checkoutUrl, sessionId } = await stripeUtil.createCheckoutSession({
+              orderId,
+              amount: o.price,
+              description: `Brawl Services™ – ${o.service_type} (${o.from_rank} → ${o.to_rank})`,
+              returnUrl: `${webUrl}/payment/stripe/success`,
+              cancelUrl: `${webUrl}/payment/cancel?order=${shortId}`,
+            });
+
+            // Store Stripe session ID
+            await db.query(
+              `UPDATE orders SET payment_id=$1, payment_method=$2 WHERE id=$3`,
+              [sessionId, method, orderId]
+            );
+            await db.query(
+              `INSERT INTO payments (order_id, user_id, method, amount, status, external_id)
+               VALUES ($1,$2,$3,$4,'pending',$5)
+               ON CONFLICT DO NOTHING`,
+              [orderId, interaction.user.id, method, o.price, sessionId]
+            );
+
+            const { ActionRowBuilder: ARB, ButtonBuilder: BB, ButtonStyle: BS } = require('discord.js');
+            const payRow = new ARB().addComponents(
+              new BB()
+                .setLabel(`Pay with ${method === 'applepay' ? 'Apple Pay' : 'Google Pay'}`)
+                .setEmoji(method === 'applepay' ? '🍎' : '🔵')
+                .setStyle(BS.Link)
+                .setURL(checkoutUrl)
+            );
+
+            const payEmbed = base(COLORS.PRIMARY)
+              .setTitle(`${label} Checkout`)
+              .setDescription(
+                `**Order:** \`#${shortId}\`\n` +
+                `**Amount:** **€${parseFloat(o.price).toFixed(2)}**\n\n` +
+                `Click the button below to pay securely.\n` +
+                `${method === 'applepay' ? '🍎 **Apple Pay** will appear automatically on Apple devices.' : '🔵 **Google Pay** will appear automatically on Android/Chrome.'}\n\n` +
+                `> 🔒 *Secure checkout powered by Stripe*`
+              );
+
+            if (process.env.PAYMENT_LOG_CHANNEL_ID) {
+              const logCh = interaction.guild.channels.cache.get(process.env.PAYMENT_LOG_CHANNEL_ID);
+              if (logCh) logCh.send({ embeds: [base(COLORS.WARNING).setTitle(`💳 ${label} Checkout Started`).setDescription(`<@${interaction.user.id}> opened ${label} checkout for order \`#${shortId}\` — **€${o.price}**`)] });
+            }
+
+            return interaction.followUp({ embeds: [payEmbed], components: [payRow], ephemeral: true });
+          } catch (err) {
+            console.error('[Stripe createSession]', err.message);
+            return interaction.followUp({ content: `❌ Could not create ${label} checkout: ${err.message}`, ephemeral: true });
+          }
         }
 
         // ── PayPal → real checkout link ─────────────────────────────────
@@ -265,8 +309,104 @@ module.exports = {
         return interaction.followUp({ content: `✅ Account enquiry ticket opened: ${ch}`, ephemeral: true });
       }
 
-      // Vouch submit button
-      if (id === 'vouch_submit') {
+      // Coaching booking buttons
+      if (id === 'coaching_open_booking') {
+        const { coachingStep1Panel } = require('../panels/coachingBooking');
+        return interaction.editReply(coachingStep1Panel());
+      }
+
+      if (id === 'coaching_view_pricing') {
+        const embed = base(COLORS.PRIMARY)
+          .setTitle(`${em.COACHING} Coaching Prices`)
+          .setDescription(
+            `${em.STAR} **Basic (1h)** — €10\n` +
+            `${em.STAR}${em.STAR} **Advanced (2h)** — €18\n` +
+            `${em.STAR}${em.STAR}${em.STAR} **Pro (3h)** — €25\n\n` +
+            `> All sessions include post-session feedback.`
+          );
+        return interaction.followUp({ embeds: [embed], ephemeral: true });
+      }
+
+      if (id === 'coaching_book_back_step1') {
+        const { coachingStep1Panel } = require('../panels/coachingBooking');
+        return interaction.editReply(coachingStep1Panel());
+      }
+
+      if (id.startsWith('coaching_book_back_step2_')) {
+        const sessionType = id.replace('coaching_book_back_step2_', '');
+        const { coachingStep2Panel } = require('../panels/coachingBooking');
+        return interaction.editReply(coachingStep2Panel(sessionType));
+      }
+
+      if (id.startsWith('coaching_book_back_step3_')) {
+        const parts = id.replace('coaching_book_back_step3_', '').split('_');
+        const sessionType = parts[0];
+        const date = parts[1];
+        const { coachingStep3Panel } = require('../panels/coachingBooking');
+        return interaction.editReply(coachingStep3Panel(sessionType, date));
+      }
+
+      // Confirm booking button: coaching_book_confirm_<type>_<date>_<time>
+      if (id.startsWith('coaching_book_confirm_')) {
+        const parts = id.replace('coaching_book_confirm_', '').split('_');
+        const sessionType = parts[0];
+        const date = parts[1];
+        const time = parts[2];
+        const { PRICING } = require('../utils/constants');
+        const pricing = PRICING.coaching[sessionType];
+        const { v4: uuidv4 } = require('uuid');
+
+        const scheduledAt = new Date(`${date}T${time}:00`);
+        const sessionId = uuidv4();
+
+        await db.query(
+          `INSERT INTO coaching_sessions (id, user_id, guild_id, session_type, duration_hours, price, scheduled_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+          [sessionId, interaction.user.id, interaction.guild.id, sessionType,
+           parseInt(pricing.label.match(/\d+/)?.[0] || 1), pricing.price, scheduledAt.toISOString()]
+        );
+
+        const ticketChannel = await createTicket(interaction.guild, interaction.user, 'coaching');
+        await db.query(`UPDATE coaching_sessions SET ticket_channel_id=$1 WHERE id=$2`, [ticketChannel.id, sessionId]);
+
+        const displayDate = scheduledAt.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+
+        await ticketChannel.send(
+          `🎓 **Coaching session booked!**\n\n` +
+          `**Type:** ${pricing.label}\n` +
+          `**Date:** ${displayDate}\n` +
+          `**Time:** ${time}:00 CET\n` +
+          `**Price:** €${pricing.price}\n\n` +
+          `A coach will be assigned shortly. Please complete payment below.`
+        );
+
+        const { paymentPanel } = require('../panels');
+        await ticketChannel.send(paymentPanel(sessionId, pricing.price, `Coaching – ${pricing.label} on ${displayDate} at ${time}:00`));
+
+        if (process.env.ORDER_LOG_CHANNEL_ID) {
+          const logCh = interaction.guild.channels.cache.get(process.env.ORDER_LOG_CHANNEL_ID);
+          if (logCh) {
+            const { claimCoachingPanel } = require('../panels');
+            const { rows: [s] } = await db.query(`SELECT * FROM coaching_sessions WHERE id=$1`, [sessionId]);
+            if (s) logCh.send(claimCoachingPanel(s));
+          }
+        }
+
+        const { success } = require('../utils/embeds');
+        return interaction.editReply({
+          embeds: [success('Booking Confirmed! 🎉',
+            `Your coaching session has been booked!\n\n` +
+            `**Session:** ${pricing.label}\n` +
+            `**Date:** ${displayDate}\n` +
+            `**Time:** ${time}:00 CET\n` +
+            `**Price:** **€${pricing.price}**\n\n` +
+            `${em.TICKET} Your ticket: ${ticketChannel}\n\n` +
+            `Complete payment in the ticket to confirm your slot!`
+          )],
+          components: [],
+          files: [],
+        });
+      }
         const modal = new ModalBuilder()
           .setCustomId('modal_vouch_submit')
           .setTitle('Leave a Vouch');
@@ -293,7 +433,8 @@ module.exports = {
       if (id === 'order_service_select') {
         const service = interaction.values[0];
         if (service === 'coaching') {
-          return interaction.editReply({ embeds: [base(COLORS.INFO).setTitle(`🎓 Book Coaching`).setDescription(`Use \`/coaching book\` to book a coaching session!`)], components: [], files: [] });
+          const { coachingStep1Panel } = require('../panels/coachingBooking');
+          return interaction.editReply(coachingStep1Panel());
         }
         if (service === 'buy_account') {
           const { rows } = await db.query(`SELECT * FROM accounts WHERE status='available' ORDER BY price ASC LIMIT 8`);
@@ -303,6 +444,33 @@ module.exports = {
           embeds: [base(COLORS.INFO).setTitle(`📦 Place Order`).setDescription(`Use \`/order create\` with service \`${service}\` to complete your order!`)],
           components: [], files: [],
         });
+      }
+
+      // Coaching booking step 1 → type selected → show date picker
+      if (id === 'coaching_book_type') {
+        const sessionType = interaction.values[0];
+        const { coachingStep2Panel } = require('../panels/coachingBooking');
+        return interaction.editReply(coachingStep2Panel(sessionType));
+      }
+
+      // Coaching booking step 2 → date selected → show time picker
+      if (id.startsWith('coaching_book_date_')) {
+        const sessionType = id.replace('coaching_book_date_', '');
+        const date = interaction.values[0];
+        const { coachingStep3Panel } = require('../panels/coachingBooking');
+        return interaction.editReply(coachingStep3Panel(sessionType, date));
+      }
+
+      // Coaching booking step 3 → time selected → show confirm
+      if (id.startsWith('coaching_book_time_')) {
+        // customId: coaching_book_time_<type>_<date>
+        const rest = id.replace('coaching_book_time_', '');
+        const firstUnderscore = rest.indexOf('_');
+        const sessionType = rest.slice(0, firstUnderscore);
+        const date = rest.slice(firstUnderscore + 1);
+        const time = interaction.values[0];
+        const { coachingStep4Panel } = require('../panels/coachingBooking');
+        return interaction.editReply(coachingStep4Panel(sessionType, date, time));
       }
 
       if (id === 'ticket_category_select') {
