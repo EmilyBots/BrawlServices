@@ -219,6 +219,112 @@ app.get('/payment/cancel', (req, res) => {
   res.sendFile(path.join(__dirname, 'web', 'cancel.html'));
 });
 
+// ─── Stripe success URL – after buyer completes checkout ─────────────────────
+app.get('/payment/stripe/success', async (req, res) => {
+  const sessionId = req.query.session_id;
+  if (!sessionId) return res.sendFile(path.join(__dirname, 'web', 'cancel.html'));
+
+  try {
+    const db = require('./database');
+    const stripeUtil = require('./utils/stripe');
+
+    const session = await stripeUtil.getSession(sessionId);
+
+    if (session.payment_status !== 'paid') {
+      console.error('[Stripe success] Payment not completed:', session.payment_status);
+      return res.sendFile(path.join(__dirname, 'web', 'cancel.html'));
+    }
+
+    // Find order by Stripe session ID stored in payment_id
+    const { rows } = await db.query(`SELECT * FROM orders WHERE payment_id=$1`, [sessionId]);
+    if (!rows.length) {
+      console.error('[Stripe success] Order not found for session:', sessionId);
+      return res.sendFile(path.join(__dirname, 'web', 'cancel.html'));
+    }
+
+    const order = rows[0];
+    const shortId = order.id.slice(0, 8).toUpperCase();
+    const paymentIntentId = session.payment_intent?.id || session.payment_intent;
+    const method = order.payment_method || 'stripe';
+
+    // Mark as paid
+    await db.query(
+      `UPDATE orders SET payment_status='paid', status='paid', updated_at=NOW() WHERE id=$1`,
+      [order.id]
+    );
+    await db.query(
+      `UPDATE payments SET status='completed', external_id=$1, metadata=$2, completed_at=NOW()
+       WHERE order_id=$3 AND method=$4`,
+      [paymentIntentId, JSON.stringify({ sessionId, paymentIntentId, amount: session.amount_total / 100 }), order.id, method]
+    );
+
+    console.log(`✅ Stripe payment captured: ${shortId} — €${session.amount_total / 100} via ${method}`);
+
+    // ── Notify Discord ─────────────────────────────────────────────────────
+    try {
+      const { EmbedBuilder } = require('discord.js');
+      const methodLabel = method === 'applepay' ? '🍎 Apple Pay' : method === 'googlepay' ? '🔵 Google Pay' : '💳 Card';
+
+      // DM customer
+      const user = await client.users.fetch(order.user_id);
+      await user.send({ embeds: [new EmbedBuilder()
+        .setColor(0x57F287)
+        .setTitle('✅ Payment Confirmed!')
+        .setDescription(
+          `Your **${methodLabel}** payment of **€${session.amount_total / 100}** for order \`#${shortId}\` has been confirmed!\n\n` +
+          `⚡ A booster will be assigned shortly.\n` +
+          `📣 Please leave a vouch after your order is complete!`
+        )
+        .setTimestamp()
+      ]});
+
+      // Payment log
+      if (process.env.PAYMENT_LOG_CHANNEL_ID) {
+        const guild = client.guilds.cache.get(process.env.GUILD_ID);
+        const logCh = guild?.channels.cache.get(process.env.PAYMENT_LOG_CHANNEL_ID);
+        if (logCh) await logCh.send({ embeds: [new EmbedBuilder()
+          .setColor(0x57F287)
+          .setTitle(`💳 ${methodLabel} Payment Captured`)
+          .setDescription(
+            `**Order:** \`#${shortId}\`\n` +
+            `**Customer:** <@${order.user_id}>\n` +
+            `**Amount:** €${session.amount_total / 100}\n` +
+            `**Method:** ${methodLabel}\n` +
+            `**Stripe PI:** \`${paymentIntentId || 'N/A'}\``
+          )
+          .setTimestamp()
+        ]});
+      }
+
+      // Post claimable order
+      if (process.env.ORDER_LOG_CHANNEL_ID) {
+        const guild = client.guilds.cache.get(process.env.GUILD_ID);
+        const logCh = guild?.channels.cache.get(process.env.ORDER_LOG_CHANNEL_ID);
+        if (logCh) {
+          const { claimOrderPanel } = require('./panels');
+          const updated = await db.query(`SELECT * FROM orders WHERE id=$1`, [order.id]);
+          if (updated.rows.length) await logCh.send(claimOrderPanel(updated.rows[0]));
+        }
+      }
+
+      // Notify ticket
+      if (order.ticket_channel_id) {
+        const guild = client.guilds.cache.get(process.env.GUILD_ID);
+        const ch = guild?.channels.cache.get(order.ticket_channel_id);
+        if (ch) await ch.send(`✅ **${methodLabel} payment confirmed!** Order \`#${shortId}\` is now paid. A booster will be assigned shortly.`);
+      }
+    } catch (notifyErr) {
+      console.error('[Stripe notify]', notifyErr.message);
+    }
+
+    res.redirect(`/success.html?order=${shortId}&method=stripe`);
+
+  } catch (err) {
+    console.error('[Stripe success error]', err.message);
+    res.sendFile(path.join(__dirname, 'web', 'cancel.html'));
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`\n🌐  Web server running on port ${PORT}`);
 });
