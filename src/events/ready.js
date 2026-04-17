@@ -27,5 +27,24 @@ module.exports = {
 
     setStatus();
     setInterval(setStatus, 30_000);
+
+    // ── Auto-send coaching panel ──────────────────────────────────────────
+    const channelId = process.env.COACHING_PANEL_CHANNEL_ID;
+    if (!channelId) return console.warn('⚠️  COACHING_PANEL_CHANNEL_ID not set, skipping panel send.');
+
+    try {
+      const channel = await client.channels.fetch(channelId);
+      if (!channel) return console.warn('⚠️  Coaching panel channel not found.');
+
+      const messages = await channel.messages.fetch({ limit: 20 });
+      const botMessages = messages.filter(m => m.author.id === client.user.id);
+      for (const msg of botMessages.values()) await msg.delete().catch(() => {});
+
+      const { coachingMainPanel } = require('../panels/coachingBooking');
+      await channel.send(coachingMainPanel());
+      console.log(`📋  Coaching panel sent to #${channel.name}`);
+    } catch (err) {
+      console.error('❌  Failed to send coaching panel:', err.message);
+    }
   },
 };
