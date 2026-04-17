@@ -453,6 +453,9 @@ module.exports = {
 
         const displayDate = scheduledAt.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
+        const { coachingMainPanel } = require('../panels/coachingBooking');
+        await ticketChannel.send(coachingMainPanel());
+
         await ticketChannel.send(
           `🎓 **Coaching session booked!**\n\n` +
           `**Type:** ${pricing.label}\n` +
