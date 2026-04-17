@@ -453,8 +453,14 @@ module.exports = {
 
         const displayDate = scheduledAt.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
-        const { coachingMainPanel } = require('../panels/coachingBooking');
-        await ticketChannel.send(coachingMainPanel());
+        await ticketChannel.send(
+          `🎓 **Coaching session booked!**\n\n` +
+          `**Type:** ${pricing.label}\n` +
+          `**Date:** ${displayDate}\n` +
+          `**Time:** ${time} CET\n` +
+          `**Price:** €${pricing.price}\n\n` +
+          `A coach will be assigned shortly. Complete payment below to confirm your slot.`
+        );
 
         await ticketChannel.send(
           `🎓 **Coaching session booked!**\n\n` +
