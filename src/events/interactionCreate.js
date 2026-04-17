@@ -309,61 +309,143 @@ module.exports = {
         return interaction.followUp({ content: `✅ Account enquiry ticket opened: ${ch}`, ephemeral: true });
       }
 
-      // Coaching booking buttons
-      if (id === 'coaching_open_booking') {
-        const { coachingStep1Panel } = require('../panels/coachingBooking');
-        return interaction.editReply(coachingStep1Panel());
+      // ── COACHING BOOKING BUTTONS (new cbk_ prefix) ──────────────────────
+      if (id === 'cbk_back_main') {
+        // Show main panel as ephemeral update
+        const { coachingMainPanel } = require('../panels/coachingBooking');
+        return interaction.editReply(coachingMainPanel());
       }
 
-      if (id === 'coaching_view_pricing') {
-        const embed = base(COLORS.PRIMARY)
-          .setTitle(`${em.COACHING} Coaching Prices`)
-          .setDescription(
-            `${em.STAR} **Basic (1h)** — €10\n` +
-            `${em.STAR}${em.STAR} **Advanced (2h)** — €18\n` +
-            `${em.STAR}${em.STAR}${em.STAR} **Pro (3h)** — €25\n\n` +
-            `> All sessions include post-session feedback.`
-          );
-        return interaction.followUp({ embeds: [embed], ephemeral: true });
+      if (id.startsWith('cbk_day_')) {
+        // cbk_day_<type>_<yearMonth>_<dateStr>
+        const rest = id.replace('cbk_day_', '');
+        const [sessionType, yearMonth, dateStr] = rest.split(/_(.+?)_(.+)/s).filter(Boolean);
+        const parts = rest.split('_');
+        const sType = parts[0];
+        const ym = parts[1];
+        const dStr = parts.slice(2).join('-');
+
+        // Fetch booked times for this date
+        const { rows: booked } = await db.query(
+          `SELECT TO_CHAR(scheduled_at AT TIME ZONE 'CET', 'HH24:MI') as time
+           FROM coaching_sessions
+           WHERE DATE(scheduled_at AT TIME ZONE 'CET') = $1 AND status NOT IN ('cancelled')`,
+          [dStr]
+        );
+        const bookedTimes = booked.map(r => r.time.slice(0, 5));
+        const { coachingTimePanel } = require('../panels/coachingBooking');
+        return interaction.followUp({ ...coachingTimePanel(sType, dStr, bookedTimes), ephemeral: true });
       }
 
-      if (id === 'coaching_book_back_step1') {
-        const { coachingStep1Panel } = require('../panels/coachingBooking');
-        return interaction.editReply(coachingStep1Panel());
+      if (id.startsWith('cbk_prevmonth_') || id.startsWith('cbk_nextmonth_')) {
+        const isPrev = id.startsWith('cbk_prevmonth_');
+        const rest = id.replace(isPrev ? 'cbk_prevmonth_' : 'cbk_nextmonth_', '');
+        const underscore = rest.indexOf('_');
+        const sType = rest.slice(0, underscore);
+        const ym = rest.slice(underscore + 1);
+        const [y, m] = ym.split('-').map(Number);
+
+        // Count booked slots per date for this month
+        const start = new Date(y, m, 1);
+        const end   = new Date(y, m + 1, 0);
+        const { rows: booked } = await db.query(
+          `SELECT TO_CHAR(scheduled_at AT TIME ZONE 'CET', 'YYYY-MM-DD') as date
+           FROM coaching_sessions
+           WHERE scheduled_at >= $1 AND scheduled_at <= $2 AND status NOT IN ('cancelled')`,
+          [start.toISOString(), end.toISOString()]
+        );
+        const bookedDateCounts = {};
+        for (const r of booked) {
+          bookedDateCounts[r.date] = (bookedDateCounts[r.date] || 0) + 1;
+        }
+        const { coachingDayPanel } = require('../panels/coachingBooking');
+        return interaction.editReply(coachingDayPanel(sType, ym, bookedDateCounts));
       }
 
-      if (id.startsWith('coaching_book_back_step2_')) {
-        const sessionType = id.replace('coaching_book_back_step2_', '');
-        const { coachingStep2Panel } = require('../panels/coachingBooking');
-        return interaction.editReply(coachingStep2Panel(sessionType));
+      if (id.startsWith('cbk_time_')) {
+        // cbk_time_<type>_<dateStr>_<time>
+        const rest = id.replace('cbk_time_', '');
+        const parts = rest.split('_');
+        const sType = parts[0];
+        const dStr  = `${parts[1]}-${parts[2]}-${parts[3]}`;
+        const time  = parts[4];
+        const { coachingConfirmPanel } = require('../panels/coachingBooking');
+        return interaction.editReply(coachingConfirmPanel(sType, dStr, time));
       }
 
-      if (id.startsWith('coaching_book_back_step3_')) {
-        const parts = id.replace('coaching_book_back_step3_', '').split('_');
-        const sessionType = parts[0];
-        const date = parts[1];
-        const { coachingStep3Panel } = require('../panels/coachingBooking');
-        return interaction.editReply(coachingStep3Panel(sessionType, date));
+      if (id.startsWith('cbk_back_days_')) {
+        // cbk_back_days_<type>_<yearMonth>
+        const rest = id.replace('cbk_back_days_', '');
+        const underscore = rest.indexOf('_');
+        const sType = rest.slice(0, underscore);
+        const ym    = rest.slice(underscore + 1);
+        const [y, m] = ym.split('-').map(Number);
+        const start = new Date(y, m, 1);
+        const end   = new Date(y, m + 1, 0);
+        const { rows: booked } = await db.query(
+          `SELECT TO_CHAR(scheduled_at AT TIME ZONE 'CET', 'YYYY-MM-DD') as date
+           FROM coaching_sessions
+           WHERE scheduled_at >= $1 AND scheduled_at <= $2 AND status NOT IN ('cancelled')`,
+          [start.toISOString(), end.toISOString()]
+        );
+        const bookedDateCounts = {};
+        for (const r of booked) bookedDateCounts[r.date] = (bookedDateCounts[r.date] || 0) + 1;
+        const { coachingDayPanel } = require('../panels/coachingBooking');
+        return interaction.editReply(coachingDayPanel(sType, ym, bookedDateCounts));
       }
 
-      // Confirm booking button: coaching_book_confirm_<type>_<date>_<time>
-      if (id.startsWith('coaching_book_confirm_')) {
-        const parts = id.replace('coaching_book_confirm_', '').split('_');
-        const sessionType = parts[0];
-        const date = parts[1];
-        const time = parts[2];
+      if (id.startsWith('cbk_back_times_')) {
+        // cbk_back_times_<type>_<dateStr>
+        const rest = id.replace('cbk_back_times_', '');
+        const underscore = rest.indexOf('_');
+        const sType = rest.slice(0, underscore);
+        const dStr  = rest.slice(underscore + 1);
+        const { rows: booked } = await db.query(
+          `SELECT TO_CHAR(scheduled_at AT TIME ZONE 'CET', 'HH24:MI') as time
+           FROM coaching_sessions
+           WHERE DATE(scheduled_at AT TIME ZONE 'CET') = $1 AND status NOT IN ('cancelled')`,
+          [dStr]
+        );
+        const bookedTimes = booked.map(r => r.time.slice(0, 5));
+        const { coachingTimePanel } = require('../panels/coachingBooking');
+        return interaction.editReply(coachingTimePanel(sType, dStr, bookedTimes));
+      }
+
+      if (id.startsWith('cbk_confirm_')) {
+        // cbk_confirm_<type>_<dateStr>_<time>
+        const rest = id.replace('cbk_confirm_', '');
+        const parts = rest.split('_');
+        const sType = parts[0];
+        const dStr  = `${parts[1]}-${parts[2]}-${parts[3]}`;
+        const time  = parts[4];
+
         const { PRICING } = require('../utils/constants');
-        const pricing = PRICING.coaching[sessionType];
+        const pricing = PRICING.coaching[sType];
         const { v4: uuidv4 } = require('uuid');
 
-        const scheduledAt = new Date(`${date}T${time}:00`);
+        // Double-check slot not taken since they opened the confirm screen
+        const { rows: conflict } = await db.query(
+          `SELECT id FROM coaching_sessions
+           WHERE DATE(scheduled_at AT TIME ZONE 'CET') = $1
+           AND TO_CHAR(scheduled_at AT TIME ZONE 'CET', 'HH24:MI') = $2
+           AND status NOT IN ('cancelled')`,
+          [dStr, time]
+        );
+        if (conflict.length) {
+          return interaction.editReply({
+            embeds: [error('Slot Taken', `Sorry, **${time} CET on ${dStr}** was just booked by someone else!\nPlease go back and choose another slot.`)],
+            components: [], files: [],
+          });
+        }
+
+        const scheduledAt = new Date(`${dStr}T${time}:00+01:00`); // CET
         const sessionId = uuidv4();
+        const duration = parseInt(pricing.label.match(/\d+/)?.[0] || 1);
 
         await db.query(
           `INSERT INTO coaching_sessions (id, user_id, guild_id, session_type, duration_hours, price, scheduled_at)
            VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-          [sessionId, interaction.user.id, interaction.guild.id, sessionType,
-           parseInt(pricing.label.match(/\d+/)?.[0] || 1), pricing.price, scheduledAt.toISOString()]
+          [sessionId, interaction.user.id, interaction.guild.id, sType, duration, pricing.price, scheduledAt.toISOString()]
         );
 
         const ticketChannel = await createTicket(interaction.guild, interaction.user, 'coaching');
@@ -375,13 +457,13 @@ module.exports = {
           `🎓 **Coaching session booked!**\n\n` +
           `**Type:** ${pricing.label}\n` +
           `**Date:** ${displayDate}\n` +
-          `**Time:** ${time}:00 CET\n` +
+          `**Time:** ${time} CET\n` +
           `**Price:** €${pricing.price}\n\n` +
-          `A coach will be assigned shortly. Please complete payment below.`
+          `A coach will be assigned shortly. Complete payment below to confirm your slot.`
         );
 
         const { paymentPanel } = require('../panels');
-        await ticketChannel.send(paymentPanel(sessionId, pricing.price, `Coaching – ${pricing.label} on ${displayDate} at ${time}:00`));
+        await ticketChannel.send(paymentPanel(sessionId, pricing.price, `Coaching – ${pricing.label} on ${displayDate} at ${time}`));
 
         if (process.env.ORDER_LOG_CHANNEL_ID) {
           const logCh = interaction.guild.channels.cache.get(process.env.ORDER_LOG_CHANNEL_ID);
@@ -395,18 +477,20 @@ module.exports = {
         const { success } = require('../utils/embeds');
         return interaction.editReply({
           embeds: [success('Booking Confirmed! 🎉',
-            `Your coaching session has been booked!\n\n` +
+            `Your coaching session is booked!\n\n` +
             `**Session:** ${pricing.label}\n` +
             `**Date:** ${displayDate}\n` +
-            `**Time:** ${time}:00 CET\n` +
+            `**Time:** ${time} CET\n` +
             `**Price:** **€${pricing.price}**\n\n` +
-            `${em.TICKET} Your ticket: ${ticketChannel}\n\n` +
-            `Complete payment in the ticket to confirm your slot!`
+            `${em.TICKET} Ticket: ${ticketChannel}\n\n` +
+            `Complete payment in your ticket to lock in the slot!`
           )],
-          components: [],
-          files: [],
+          components: [], files: [],
         });
       }
+
+      // ── VOUCH SUBMIT BUTTON ──────────────────────────────────────────────
+      if (id === 'vouch_submit') {
         const modal = new ModalBuilder()
           .setCustomId('modal_vouch_submit')
           .setTitle('Leave a Vouch');
@@ -430,11 +514,12 @@ module.exports = {
       const id = interaction.customId;
       await interaction.deferUpdate().catch(() => {});
 
+      // Main order panel
       if (id === 'order_service_select') {
         const service = interaction.values[0];
         if (service === 'coaching') {
-          const { coachingStep1Panel } = require('../panels/coachingBooking');
-          return interaction.editReply(coachingStep1Panel());
+          const { coachingMainPanel } = require('../panels/coachingBooking');
+          return interaction.editReply(coachingMainPanel());
         }
         if (service === 'buy_account') {
           const { rows } = await db.query(`SELECT * FROM accounts WHERE status='available' ORDER BY price ASC LIMIT 8`);
@@ -446,33 +531,50 @@ module.exports = {
         });
       }
 
-      // Coaching booking step 1 → type selected → show date picker
-      if (id === 'coaching_book_type') {
-        const sessionType = interaction.values[0];
-        const { coachingStep2Panel } = require('../panels/coachingBooking');
-        return interaction.editReply(coachingStep2Panel(sessionType));
+      // cbk_type — type chosen → show month picker (ephemeral followUp)
+      if (id === 'cbk_type') {
+        const sType = interaction.values[0];
+        const { PRICING: P } = require('../utils/constants');
+        const { base: b } = require('../utils/embeds');
+        const { StringSelectMenuBuilder: SSM, ActionRowBuilder: ARL } = require('discord.js');
+        const pricing = P.coaching[sType];
+        const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+        const now = new Date();
+        const monthOpts = [];
+        for (let i = 0; i < 3; i++) {
+          const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+          monthOpts.push({ label: `${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}`, value: `${d.getFullYear()}-${d.getMonth()}`, description: i === 0 ? 'Current month' : i === 1 ? 'Next month' : 'Month after next' });
+        }
+        const embed = b(COLORS.PRIMARY)
+          .setTitle(`📅 Pick a Month`)
+          .setDescription(`**Session:** ${pricing.label} — **€${pricing.price}**\n\nSelect a month to see the calendar.`);
+        const monthSelect = new SSM().setCustomId(`cbk_showdays_${sType}`).setPlaceholder('📅 Select a month...').addOptions(monthOpts);
+        return interaction.followUp({ embeds: [embed], components: [new ARL().addComponents(monthSelect)], ephemeral: true });
       }
 
-      // Coaching booking step 2 → date selected → show time picker
-      if (id.startsWith('coaching_book_date_')) {
-        const sessionType = id.replace('coaching_book_date_', '');
-        const date = interaction.values[0];
-        const { coachingStep3Panel } = require('../panels/coachingBooking');
-        return interaction.editReply(coachingStep3Panel(sessionType, date));
+      // cbk_showdays_<type> → month chosen → show day calendar
+      if (id.startsWith('cbk_showdays_')) {
+        const sType = id.replace('cbk_showdays_', '');
+        const ym = interaction.values[0];
+        const [y, m] = ym.split('-').map(Number);
+        const start = new Date(y, m, 1);
+        const end   = new Date(y, m + 1, 0);
+        const { rows: booked } = await db.query(
+          `SELECT TO_CHAR(scheduled_at AT TIME ZONE 'CET', 'YYYY-MM-DD') as date FROM coaching_sessions WHERE scheduled_at >= $1 AND scheduled_at <= $2 AND status NOT IN ('cancelled')`,
+          [start.toISOString(), end.toISOString()]
+        );
+        const bookedDateCounts = {};
+        for (const r of booked) bookedDateCounts[r.date] = (bookedDateCounts[r.date] || 0) + 1;
+        const { coachingDayPanel } = require('../panels/coachingBooking');
+        return interaction.editReply(coachingDayPanel(sType, ym, bookedDateCounts));
       }
 
-      // Coaching booking step 3 → time selected → show confirm
-      if (id.startsWith('coaching_book_time_')) {
-        // customId: coaching_book_time_<type>_<date>
-        const rest = id.replace('coaching_book_time_', '');
-        const firstUnderscore = rest.indexOf('_');
-        const sessionType = rest.slice(0, firstUnderscore);
-        const date = rest.slice(firstUnderscore + 1);
-        const time = interaction.values[0];
-        const { coachingStep4Panel } = require('../panels/coachingBooking');
-        return interaction.editReply(coachingStep4Panel(sessionType, date, time));
+      // cbk_month on main panel (type not yet chosen)
+      if (id === 'cbk_month') {
+        return interaction.followUp({ content: `⚠️ Please select your **session type** first using the top dropdown!`, ephemeral: true });
       }
 
+      // Ticket category
       if (id === 'ticket_category_select') {
         const category = interaction.values[0];
         const { rows: existing } = await db.query(`SELECT * FROM tickets WHERE user_id=$1 AND guild_id=$2 AND status='open' LIMIT 1`, [interaction.user.id, interaction.guild.id]);
@@ -496,7 +598,7 @@ module.exports = {
           return interaction.editReply({ embeds: [error('Invalid Rating', 'Rating must be 1-5.')] });
         }
 
-        const { rows: [vouch] } = await db.query(
+        await db.query(
           `INSERT INTO vouches (user_id, guild_id, order_id, rating, comment) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
           [interaction.user.id, interaction.guild.id, orderId, rating, comment]
         );
