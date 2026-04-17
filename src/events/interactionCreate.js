@@ -120,36 +120,89 @@ module.exports = {
         if (o.user_id !== interaction.user.id)
           return interaction.followUp({ content: '❌ This payment is not for you.', ephemeral: true });
 
-        // Build payment instructions
-        let instructions = '';
-        let emoji = '';
-        if (method === 'applepay') {
-          emoji = '🍎';
-          instructions = `**Apple Pay**\nPlease contact a staff member to process your Apple Pay payment of **€${o.price}**.`;
-        } else if (method === 'googlepay') {
-          emoji = '🔵';
-          instructions = `**Google Pay**\nPlease contact a staff member to process your Google Pay payment of **€${o.price}**.`;
-        } else if (method === 'paypal') {
-          emoji = em.PAYPAL.startsWith('<') ? em.PAYPAL : '💲';
-          instructions = `**PayPal**\nPlease send **€${o.price}** to our PayPal and include your Order ID:\n\`#${orderId.slice(0,8).toUpperCase()}\`\n\nAfter sending, notify a staff member with your PayPal transaction ID.`;
-        }
-
         await db.query(`UPDATE orders SET payment_method=$1 WHERE id=$2`, [method, orderId]);
 
-        const payEmbed = base(COLORS.INFO)
-          .setTitle(`${emoji} Payment Instructions`)
-          .setDescription(
-            `**Order:** \`#${orderId.slice(0,8).toUpperCase()}\`\n` +
-            `**Amount:** **€${o.price}**\n\n` +
-            instructions + `\n\n> Once payment is confirmed by staff, your order will begin!`
-          );
+        // ── Apple Pay / Google Pay → manual staff flow ──────────────────
+        if (method === 'applepay' || method === 'googlepay') {
+          const label = method === 'applepay' ? '🍎 Apple Pay' : '🔵 Google Pay';
+          const payEmbed = base(COLORS.INFO)
+            .setTitle(`${label} – Payment Instructions`)
+            .setDescription(
+              `**Order:** \`#${orderId.slice(0,8).toUpperCase()}\`\n` +
+              `**Amount:** **€${o.price}**\n\n` +
+              `Please open a ticket or contact a staff member — they will send you a payment link or request that supports **${label}**.\n\n` +
+              `> Your order is saved. A staff member will confirm payment and assign your booster.`
+            );
 
-        if (process.env.PAYMENT_LOG_CHANNEL_ID) {
-          const logCh = interaction.guild.channels.cache.get(process.env.PAYMENT_LOG_CHANNEL_ID);
-          if (logCh) logCh.send({ embeds: [base(COLORS.WARNING).setTitle(`💳 Payment Intent`).setDescription(`<@${interaction.user.id}> selected **${method}** for order \`#${orderId.slice(0,8).toUpperCase()}\` (€${o.price})`)] });
+          if (process.env.PAYMENT_LOG_CHANNEL_ID) {
+            const logCh = interaction.guild.channels.cache.get(process.env.PAYMENT_LOG_CHANNEL_ID);
+            if (logCh) logCh.send({ embeds: [base(COLORS.WARNING).setTitle(`💳 Payment Intent – ${label}`).setDescription(`<@${interaction.user.id}> selected **${method}** for order \`#${orderId.slice(0,8).toUpperCase()}\` (€${o.price})`)] });
+          }
+
+          return interaction.followUp({ embeds: [payEmbed], ephemeral: true });
         }
 
-        return interaction.followUp({ embeds: [payEmbed], ephemeral: true });
+        // ── PayPal → real checkout link ─────────────────────────────────
+        if (method === 'paypal') {
+          if (!process.env.PAYPAL_CLIENT_ID || !process.env.PAYPAL_CLIENT_SECRET) {
+            return interaction.followUp({ content: '❌ PayPal is not configured. Please contact staff.', ephemeral: true });
+          }
+
+          try {
+            const paypal = require('../utils/paypal');
+            const webUrl = process.env.WEB_URL || `http://localhost:${process.env.PORT || 3000}`;
+            const shortId = orderId.slice(0, 8).toUpperCase();
+
+            const { paypalOrderId, approveUrl } = await paypal.createOrder({
+              orderId,
+              amount: o.price,
+              description: `Brawl Services™ – ${o.service_type} (${o.from_rank} → ${o.to_rank})`,
+              returnUrl: `${webUrl}/payment/success?token=${encodeURIComponent(orderId)}&paypal_order_id=PAYPAL_ORDER_ID`,
+              cancelUrl: `${webUrl}/payment/cancel?order=${shortId}`,
+            });
+
+            // Store the paypal order id so we can capture it on return
+            await db.query(
+              `UPDATE orders SET payment_id=$1, payment_method='paypal' WHERE id=$2`,
+              [paypalOrderId, orderId]
+            );
+            await db.query(
+              `INSERT INTO payments (order_id, user_id, method, amount, status, external_id)
+               VALUES ($1,$2,'paypal',$3,'pending',$4)
+               ON CONFLICT DO NOTHING`,
+              [orderId, interaction.user.id, o.price, paypalOrderId]
+            );
+
+            const { ActionRowBuilder: ARB, ButtonBuilder: BB, ButtonStyle: BS } = require('discord.js');
+            const payRow = new ARB().addComponents(
+              new BB()
+                .setLabel('Pay with PayPal')
+                .setEmoji('💲')
+                .setStyle(BS.Link)
+                .setURL(approveUrl)
+            );
+
+            const payEmbed = base(COLORS.PRIMARY)
+              .setTitle(`${em.PAYPAL.startsWith('<') ? em.PAYPAL : '💲'} PayPal Checkout`)
+              .setDescription(
+                `**Order:** \`#${shortId}\`\n` +
+                `**Amount:** **€${parseFloat(o.price).toFixed(2)}**\n\n` +
+                `Click the button below to pay securely via PayPal.\n` +
+                `You'll be redirected back automatically after payment.\n\n` +
+                `> 🔒 *Secure checkout powered by PayPal*`
+              );
+
+            if (process.env.PAYMENT_LOG_CHANNEL_ID) {
+              const logCh = interaction.guild.channels.cache.get(process.env.PAYMENT_LOG_CHANNEL_ID);
+              if (logCh) logCh.send({ embeds: [base(COLORS.WARNING).setTitle(`💳 PayPal Checkout Started`).setDescription(`<@${interaction.user.id}> opened PayPal checkout for order \`#${shortId}\` — **€${o.price}**`)] });
+            }
+
+            return interaction.followUp({ embeds: [payEmbed], components: [payRow], ephemeral: true });
+          } catch (err) {
+            console.error('[PayPal createOrder]', err?.response?.data || err.message);
+            return interaction.followUp({ content: `❌ Could not create PayPal order: ${err?.response?.data?.message || err.message}`, ephemeral: true });
+          }
+        }
       }
 
       // Staff panel buttons
