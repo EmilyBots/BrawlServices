@@ -279,19 +279,10 @@ module.exports = {
       // ── panel ─────────────────────────────────────────────────────────
       if (sub === 'panel') {
         if (!isStaff(interaction.member)) return interaction.editReply({ embeds: [error('Access Denied', 'Staff only.')] });
-        const { coachingAvailablePanel } = require('../panels/coachingBooking');
+        const { coachingMainPanel } = require('../panels/coachingBooking');
         const ch = interaction.options.getChannel('channel') || interaction.channel;
-        const cutoff = new Date();
-        cutoff.setDate(cutoff.getDate() + 7);
-        const { rows: booked } = await db.query(
-          `SELECT TO_CHAR(scheduled_at AT TIME ZONE 'CET', 'YYYY-MM-DD') as date,
-                  TO_CHAR(scheduled_at AT TIME ZONE 'CET', 'HH24:MI') as time
-           FROM coaching_sessions
-           WHERE scheduled_at > NOW() AND scheduled_at < $1 AND status NOT IN ('cancelled')`,
-          [cutoff.toISOString()]
-        );
-        await ch.send(coachingAvailablePanel(booked));
-        return interaction.editReply({ embeds: [success('Panel Sent', `Coaching availability panel sent to ${ch}`)] });
+        await ch.send(coachingMainPanel());
+        return interaction.editReply({ embeds: [success('Panel Sent', `Coaching booking panel sent to ${ch}`)] });
       }
 
     } catch (err) {
