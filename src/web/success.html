@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Payment Successful – Brawl Services™</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0d0d0d;
+      color: #fff;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .card {
+      background: #1a1a1a;
+      border: 1px solid #FFB800;
+      border-radius: 20px;
+      padding: 48px 40px;
+      max-width: 460px;
+      width: 90%;
+      text-align: center;
+      box-shadow: 0 0 60px rgba(255,184,0,0.15);
+    }
+    .icon { font-size: 64px; margin-bottom: 20px; }
+    h1 { font-size: 28px; color: #FFB800; margin-bottom: 12px; }
+    p { color: #aaa; line-height: 1.6; margin-bottom: 8px; }
+    .order-id {
+      display: inline-block;
+      background: #111;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 8px 16px;
+      font-family: monospace;
+      font-size: 16px;
+      color: #FFB800;
+      margin: 16px 0;
+      letter-spacing: 2px;
+    }
+    .badge {
+      display: inline-block;
+      background: #1a3a1a;
+      border: 1px solid #57F287;
+      color: #57F287;
+      border-radius: 20px;
+      padding: 6px 18px;
+      font-size: 14px;
+      margin-bottom: 24px;
+    }
+    .close-tip { font-size: 13px; color: #555; margin-top: 24px; }
+    .brand { margin-top: 28px; font-size: 13px; color: #444; }
+    .brand span { color: #FFB800; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">✅</div>
+    <h1>Payment Confirmed!</h1>
+    <div class="badge">🏆 Brawl Services™</div>
+    <p>Your PayPal payment was successful.</p>
+    <div class="order-id" id="orderId">Loading...</div>
+    <p>A booster will be assigned to your order shortly.<br/>Check your Discord DMs for updates.</p>
+    <p class="close-tip">You can close this tab now and return to Discord.</p>
+    <div class="brand">Powered by <span>Brawl Services™</span></div>
+  </div>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const short = params.get('order') || '—';
+    document.getElementById('orderId').textContent = '#' + short.toUpperCase();
+  </script>
+</body>
+</html>
