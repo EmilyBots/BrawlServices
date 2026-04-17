@@ -70,6 +70,13 @@
     const params = new URLSearchParams(window.location.search);
     const short = params.get('order') || '—';
     document.getElementById('orderId').textContent = '#' + short.toUpperCase();
+    // show method if present
+    const method = params.get('method');
+    const methodEl = document.createElement('p');
+    methodEl.style.cssText = 'font-size:13px;color:#888;margin-bottom:8px';
+    const labels = { stripe: '💳 Card / Apple Pay / Google Pay', paypal: '💲 PayPal' };
+    if (method) methodEl.textContent = 'Paid via: ' + (labels[method] || method);
+    document.querySelector('.order-id').insertAdjacentElement('afterend', methodEl);
   </script>
 </body>
 </html>
