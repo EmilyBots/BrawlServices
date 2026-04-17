@@ -84,7 +84,6 @@ module.exports = {
         } catch {}
 
         await interaction.followUp({ content: `✅ You've claimed order \`#${orderId.slice(0,8).toUpperCase()}\`!`, ephemeral: true });
-        // Update the message to disable button
         try {
           const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
           const disabledRow = new ActionRowBuilder().addComponents(
@@ -122,7 +121,6 @@ module.exports = {
 
         await db.query(`UPDATE orders SET payment_method=$1 WHERE id=$2`, [method, orderId]);
 
-        // ── Apple Pay / Google Pay → Stripe Checkout ────────────────────
         if (method === 'applepay' || method === 'googlepay') {
           if (!process.env.STRIPE_SECRET_KEY) {
             return interaction.followUp({ content: '❌ Stripe is not configured. Please contact staff.', ephemeral: true });
@@ -143,7 +141,6 @@ module.exports = {
               cancelUrl: `${webUrl}/payment/cancel?order=${shortId}`,
             });
 
-            // Store Stripe session ID
             await db.query(
               `UPDATE orders SET payment_id=$1, payment_method=$2 WHERE id=$3`,
               [sessionId, method, orderId]
@@ -186,7 +183,6 @@ module.exports = {
           }
         }
 
-        // ── PayPal → real checkout link ─────────────────────────────────
         if (method === 'paypal') {
           if (!process.env.PAYPAL_CLIENT_ID || !process.env.PAYPAL_CLIENT_SECRET) {
             return interaction.followUp({ content: '❌ PayPal is not configured. Please contact staff.', ephemeral: true });
@@ -205,7 +201,6 @@ module.exports = {
               cancelUrl: `${webUrl}/payment/cancel?order=${shortId}`,
             });
 
-            // Store the paypal order id so we can capture it on return
             await db.query(
               `UPDATE orders SET payment_id=$1, payment_method='paypal' WHERE id=$2`,
               [paypalOrderId, orderId]
@@ -309,23 +304,19 @@ module.exports = {
         return interaction.followUp({ content: `✅ Account enquiry ticket opened: ${ch}`, ephemeral: true });
       }
 
-      // ── COACHING BOOKING BUTTONS (new cbk_ prefix) ──────────────────────
+      // ── COACHING BOOKING BUTTONS ─────────────────────────────────────────
       if (id === 'cbk_back_main') {
-        // Show main panel as ephemeral update
         const { coachingMainPanel } = require('../panels/coachingBooking');
         return interaction.editReply(coachingMainPanel());
       }
 
       if (id.startsWith('cbk_day_')) {
-        // cbk_day_<type>_<yearMonth>_<dateStr>
         const rest = id.replace('cbk_day_', '');
-        const [sessionType, yearMonth, dateStr] = rest.split(/_(.+?)_(.+)/s).filter(Boolean);
         const parts = rest.split('_');
         const sType = parts[0];
         const ym = parts[1];
         const dStr = parts.slice(2).join('-');
 
-        // Fetch booked times for this date
         const { rows: booked } = await db.query(
           `SELECT TO_CHAR(scheduled_at AT TIME ZONE 'CET', 'HH24:MI') as time
            FROM coaching_sessions
@@ -345,7 +336,6 @@ module.exports = {
         const ym = rest.slice(underscore + 1);
         const [y, m] = ym.split('-').map(Number);
 
-        // Count booked slots per date for this month
         const start = new Date(y, m, 1);
         const end   = new Date(y, m + 1, 0);
         const { rows: booked } = await db.query(
@@ -355,15 +345,12 @@ module.exports = {
           [start.toISOString(), end.toISOString()]
         );
         const bookedDateCounts = {};
-        for (const r of booked) {
-          bookedDateCounts[r.date] = (bookedDateCounts[r.date] || 0) + 1;
-        }
+        for (const r of booked) bookedDateCounts[r.date] = (bookedDateCounts[r.date] || 0) + 1;
         const { coachingDayPanel } = require('../panels/coachingBooking');
         return interaction.editReply(coachingDayPanel(sType, ym, bookedDateCounts));
       }
 
       if (id.startsWith('cbk_time_')) {
-        // cbk_time_<type>_<dateStr>_<time>
         const rest = id.replace('cbk_time_', '');
         const parts = rest.split('_');
         const sType = parts[0];
@@ -374,7 +361,6 @@ module.exports = {
       }
 
       if (id.startsWith('cbk_back_days_')) {
-        // cbk_back_days_<type>_<yearMonth>
         const rest = id.replace('cbk_back_days_', '');
         const underscore = rest.indexOf('_');
         const sType = rest.slice(0, underscore);
@@ -395,7 +381,6 @@ module.exports = {
       }
 
       if (id.startsWith('cbk_back_times_')) {
-        // cbk_back_times_<type>_<dateStr>
         const rest = id.replace('cbk_back_times_', '');
         const underscore = rest.indexOf('_');
         const sType = rest.slice(0, underscore);
@@ -412,7 +397,6 @@ module.exports = {
       }
 
       if (id.startsWith('cbk_confirm_')) {
-        // cbk_confirm_<type>_<dateStr>_<time>
         const rest = id.replace('cbk_confirm_', '');
         const parts = rest.split('_');
         const sType = parts[0];
@@ -423,7 +407,6 @@ module.exports = {
         const pricing = PRICING.coaching[sType];
         const { v4: uuidv4 } = require('uuid');
 
-        // Double-check slot not taken since they opened the confirm screen
         const { rows: conflict } = await db.query(
           `SELECT id FROM coaching_sessions
            WHERE DATE(scheduled_at AT TIME ZONE 'CET') = $1
@@ -438,7 +421,7 @@ module.exports = {
           });
         }
 
-        const scheduledAt = new Date(`${dStr}T${time}:00+01:00`); // CET
+        const scheduledAt = new Date(`${dStr}T${time}:00+01:00`);
         const sessionId = uuidv4();
         const duration = parseInt(pricing.label.match(/\d+/)?.[0] || 1);
 
@@ -453,26 +436,21 @@ module.exports = {
 
         const displayDate = scheduledAt.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
-        await ticketChannel.send(
-          `🎓 **Coaching session booked!**\n\n` +
-          `**Type:** ${pricing.label}\n` +
-          `**Date:** ${displayDate}\n` +
-          `**Time:** ${time} CET\n` +
-          `**Price:** €${pricing.price}\n\n` +
-          `A coach will be assigned shortly. Complete payment below to confirm your slot.`
-        );
+        try {
+          await ticketChannel.send(
+            `🎓 **Coaching session booked!**\n\n` +
+            `**Type:** ${pricing.label}\n` +
+            `**Date:** ${displayDate}\n` +
+            `**Time:** ${time} CET\n` +
+            `**Price:** €${pricing.price}\n\n` +
+            `A coach will be assigned shortly. Complete payment below to confirm your slot.`
+          );
 
-        await ticketChannel.send(
-          `🎓 **Coaching session booked!**\n\n` +
-          `**Type:** ${pricing.label}\n` +
-          `**Date:** ${displayDate}\n` +
-          `**Time:** ${time} CET\n` +
-          `**Price:** €${pricing.price}\n\n` +
-          `A coach will be assigned shortly. Complete payment below to confirm your slot.`
-        );
-
-        const { paymentPanel } = require('../panels');
-        await ticketChannel.send(paymentPanel(sessionId, pricing.price, `Coaching – ${pricing.label} on ${displayDate} at ${time}`));
+          const { paymentPanel } = require('../panels');
+          await ticketChannel.send(paymentPanel(sessionId, pricing.price, `Coaching – ${pricing.label} on ${displayDate} at ${time}`));
+        } catch (sendErr) {
+          console.error('❌ Failed to send coaching messages to ticket:', sendErr.message);
+        }
 
         if (process.env.ORDER_LOG_CHANNEL_ID) {
           const logCh = interaction.guild.channels.cache.get(process.env.ORDER_LOG_CHANNEL_ID);
@@ -523,7 +501,6 @@ module.exports = {
       const id = interaction.customId;
       await interaction.deferUpdate().catch(() => {});
 
-      // Main order panel
       if (id === 'order_service_select') {
         const service = interaction.values[0];
         if (service === 'coaching') {
@@ -540,7 +517,6 @@ module.exports = {
         });
       }
 
-      // cbk_type — type chosen → show month picker (ephemeral followUp)
       if (id === 'cbk_type') {
         const sType = interaction.values[0];
         const { PRICING: P } = require('../utils/constants');
@@ -561,7 +537,6 @@ module.exports = {
         return interaction.followUp({ embeds: [embed], components: [new ARL().addComponents(monthSelect)], ephemeral: true });
       }
 
-      // cbk_showdays_<type> → month chosen → show day calendar
       if (id.startsWith('cbk_showdays_')) {
         const sType = id.replace('cbk_showdays_', '');
         const ym = interaction.values[0];
@@ -578,12 +553,10 @@ module.exports = {
         return interaction.editReply(coachingDayPanel(sType, ym, bookedDateCounts));
       }
 
-      // cbk_month on main panel (type not yet chosen)
       if (id === 'cbk_month') {
         return interaction.followUp({ content: `⚠️ Please select your **session type** first using the top dropdown!`, ephemeral: true });
       }
 
-      // Ticket category
       if (id === 'ticket_category_select') {
         const category = interaction.values[0];
         const { rows: existing } = await db.query(`SELECT * FROM tickets WHERE user_id=$1 AND guild_id=$2 AND status='open' LIMIT 1`, [interaction.user.id, interaction.guild.id]);
