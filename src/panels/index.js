@@ -12,7 +12,7 @@ const logo = () => new AttachmentBuilder('assets/logo.png', { name: 'logo.png' }
 function mainMenuPanel() {
   const em = getEmojis();
   const embed = base(COLORS.PRIMARY)
-    .setTitle('# 🏆 Brawl Services™')
+    .setTitle('🏆 Brawl Services™')
     .setDescription(
       `> **Welcome to the #1 Brawl Stars Boosting Service!**\n\n` +
       `We offer **fast**, **reliable** and **safe** services for all ranks.\n\n` +
@@ -40,7 +40,7 @@ function mainMenuPanel() {
 function pricesPanel() {
   const em = getEmojis();
   const embed = base(COLORS.PRIMARY)
-    .setTitle('# 💰 PRICES – Brawl Services™')
+    .setTitle('💰 PRICES – Brawl Services™')
     .setDescription(
       `## ⚔️ Ranked Boosts\n` +
       `### 🕹️ Boost *(we play on your account)*\n` +
@@ -89,7 +89,7 @@ function pricesPanel() {
 function orderPanel() {
   const em = getEmojis();
   const embed = base(COLORS.PRIMARY)
-    .setTitle(`# ${em.ORDER} Place an Order`)
+    .setTitle(`${em.ORDER} Place an Order`)
     .setDescription(
       `> Choose the type of service you'd like to order.\n\n` +
       `${em.SWORD} **Ranked Boost** — Climb the ranked ladder\n` +
@@ -128,7 +128,7 @@ function orderPanel() {
 function paymentPanel(orderId, amount, description) {
   const em = getEmojis();
   const embed = base(COLORS.PRIMARY)
-    .setTitle(`# ${em.PAYMENT} Payment`)
+    .setTitle(`${em.PAYMENT} Payment`)
     .setDescription(
       `> Complete your payment to start your order!\n\n` +
       `**Order:** \`#${orderId.slice(0,8).toUpperCase()}\`\n` +
@@ -167,7 +167,7 @@ function paymentPanel(orderId, amount, description) {
 function ticketPanel() {
   const em = getEmojis();
   const embed = base(COLORS.PRIMARY)
-    .setTitle(`# ${em.TICKET} Support & Tickets`)
+    .setTitle(`${em.TICKET} Support & Tickets`)
     .setDescription(
       `> Need help? Open a ticket and our team will assist you!\n\n` +
       `**📦 Order Support** — Question about your current order\n` +
@@ -200,7 +200,7 @@ function ticketPanel() {
 function vouchPanel() {
   const em = getEmojis();
   const embed = base(COLORS.PRIMARY)
-    .setTitle(`# ${em.VOUCH} Leave a Vouch`)
+    .setTitle(`${em.VOUCH} Leave a Vouch`)
     .setDescription(
       `> Share your experience with **Brawl Services™**!\n\n` +
       `Your vouch helps other players trust our service.\n\n` +
@@ -224,7 +224,7 @@ function vouchPanel() {
 function claimOrderPanel(order) {
   const em = getEmojis();
   const embed = base(COLORS.WARNING)
-    .setTitle(`# ${em.BOOST} New Order Available`)
+    .setTitle(`${em.BOOST} New Order Available`)
     .setDescription(
       `> A new order is ready to be claimed!\n\n` +
       `**Order ID:** \`#${order.id.slice(0,8).toUpperCase()}\`\n` +
@@ -252,7 +252,7 @@ function claimOrderPanel(order) {
 function claimCoachingPanel(session) {
   const em = getEmojis();
   const embed = base(COLORS.WARNING)
-    .setTitle(`# ${em.COACHING} Coaching Session Available`)
+    .setTitle(`${em.COACHING} Coaching Session Available`)
     .setDescription(
       `> A coaching session is available!\n\n` +
       `**Session ID:** \`#${session.id.slice(0,8).toUpperCase()}\`\n` +
@@ -279,7 +279,7 @@ function claimCoachingPanel(session) {
 function buyAccountPanel(accounts = []) {
   const em = getEmojis();
   const embed = base(COLORS.PRIMARY)
-    .setTitle(`# ${em.ACCOUNT} Account Shop`)
+    .setTitle(`${em.ACCOUNT} Account Shop`)
     .setDescription(
       `> Browse and purchase pre-leveled Brawl Stars accounts!\n\n` +
       (accounts.length === 0
@@ -307,7 +307,7 @@ function buyAccountPanel(accounts = []) {
 function staffPanel() {
   const em = getEmojis();
   const embed = base(COLORS.INFO)
-    .setTitle(`# ${em.STAFF} Staff Control Panel`)
+    .setTitle(`${em.STAFF} Staff Control Panel`)
     .setDescription(
       `> **Staff-only tools and actions**\n\n` +
       `${em.ORDER} **Orders** — View, assign, complete orders\n` +
