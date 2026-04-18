@@ -74,6 +74,16 @@ async function createTicket(guild, user, category = 'general', orderId = null, e
     files: [{ attachment: 'assets/logo.png', name: 'logo.png' }],
   });
 
+  // Send coaching booking panel automatically for coaching tickets
+  if (category === 'coaching') {
+    try {
+      const { coachingMainPanel } = require('../panels/coachingBooking');
+      await channel.send(coachingMainPanel());
+    } catch (err) {
+      console.error('[ticketManager] Failed to send coaching panel:', err.message);
+    }
+  }
+
   return channel;
 }
 
