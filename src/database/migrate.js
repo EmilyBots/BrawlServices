@@ -115,6 +115,24 @@ CREATE TABLE IF NOT EXISTS staff_actions (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS applications (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id VARCHAR(20) NOT NULL,
+  guild_id VARCHAR(20) NOT NULL,
+  type VARCHAR(20) NOT NULL,
+  status VARCHAR(20) DEFAULT 'pending',
+  review_message_id VARCHAR(20),
+  review_channel_id VARCHAR(20),
+  answers JSONB NOT NULL,
+  reviewer_id VARCHAR(20),
+  reviewer_notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  reviewed_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_applications_user ON applications(user_id);
+CREATE INDEX IF NOT EXISTS idx_applications_status ON applications(status);
+
 CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
 CREATE INDEX IF NOT EXISTS idx_tickets_channel ON tickets(channel_id);
