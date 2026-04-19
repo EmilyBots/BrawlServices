@@ -52,6 +52,47 @@ module.exports = {
         return interaction.showModal(modal);
       }
 
+      if (id === 'partner_apply') {
+        const { ModalBuilder: MB, TextInputBuilder: TIB, TextInputStyle: TIS, ActionRowBuilder: ARB } = require('discord.js');
+        const modal = new MB().setCustomId('partner_modal').setTitle('Partnership Request');
+        modal.addComponents(
+          new ARB().addComponents(new TIB().setCustomId('q1').setLabel('Your server name & invite link').setStyle(TIS.Short).setRequired(true).setMaxLength(200)),
+          new ARB().addComponents(new TIB().setCustomId('q2').setLabel('Member count & activity level').setStyle(TIS.Short).setRequired(true).setMaxLength(200)),
+          new ARB().addComponents(new TIB().setCustomId('q3').setLabel('What type of community is your server?').setStyle(TIS.Short).setRequired(true).setMaxLength(200)),
+          new ARB().addComponents(new TIB().setCustomId('q4').setLabel('How will you promote Brawl Services™?').setStyle(TIS.Paragraph).setRequired(true).setMaxLength(500)),
+          new ARB().addComponents(new TIB().setCustomId('q5').setLabel('Anything else you\'d like us to know?').setStyle(TIS.Paragraph).setRequired(false).setMaxLength(500)),
+        );
+        return interaction.showModal(modal);
+      }
+
+      if (id.startsWith('partner_decline_') && !id.startsWith('partner_decline_reason_')) {
+        const ownerId = process.env.OWNER_ID;
+        if (ownerId && interaction.user.id !== ownerId)
+          return interaction.reply({ content: `❌ Only the **server owner** can decline partnership requests.`, ephemeral: true });
+        const partId = id.replace('partner_decline_', '');
+        const modal = new ModalBuilder().setCustomId(`partner_decline_reason_${partId}`).setTitle('Decline Reason');
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder().setCustomId('reason').setLabel('Reason for declining').setStyle(TextInputStyle.Paragraph).setRequired(false).setMaxLength(500).setPlaceholder('Optional')
+          )
+        );
+        return interaction.showModal(modal);
+      }
+
+      if (id.startsWith('partner_info_')) {
+        const ownerId = process.env.OWNER_ID;
+        if (ownerId && interaction.user.id !== ownerId)
+          return interaction.reply({ content: `❌ Only the **server owner** can request more info.`, ephemeral: true });
+        const partId = id.replace('partner_info_', '');
+        const modal = new ModalBuilder().setCustomId(`partner_info_msg_${partId}`).setTitle('Request More Information');
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder().setCustomId('message').setLabel('What info do you need?').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(500)
+          )
+        );
+        return interaction.showModal(modal);
+      }
+
       if (id === 'app_apply_staff' || id === 'app_apply_booster' || id === 'app_apply_coach') {
         const type = id.replace('app_apply_', '');
         const { rows: existing } = await db.query(
@@ -226,6 +267,40 @@ module.exports = {
         if (id === 'account_ticket') {
           const ch = await createTicket(interaction.guild, interaction.user, 'account');
           return interaction.followUp({ content: `✅ Account enquiry ticket opened: ${ch}`, ephemeral: true });
+        }
+
+        // Partnership accept button
+        if (id.startsWith('partner_accept_')) {
+          const ownerId = process.env.OWNER_ID;
+          if (ownerId && interaction.user.id !== ownerId)
+            return interaction.followUp({ content: `❌ Only the **server owner** can accept partnerships.`, ephemeral: true });
+
+          const partId = id.replace('partner_accept_', '');
+          const { rows } = await db.query(`SELECT * FROM partnerships WHERE id=$1`, [partId]);
+          if (!rows.length) return interaction.followUp({ content: '❌ Partnership request not found.', ephemeral: true });
+          const p = rows[0];
+
+          await db.query(`UPDATE partnerships SET status='accepted', reviewer_id=$1, reviewed_at=NOW() WHERE id=$2`, [interaction.user.id, partId]);
+
+          // Assign partner role if set
+          if (process.env.PARTNER_ROLE_ID) {
+            const member = await interaction.guild.members.fetch(p.user_id).catch(() => null);
+            if (member) await member.roles.add(process.env.PARTNER_ROLE_ID).catch(() => {});
+          }
+
+          try {
+            const user = await interaction.client.users.fetch(p.user_id);
+            await user.send({ embeds: [base(COLORS.SUCCESS).setTitle(`✅ Partnership Accepted!`).setDescription(`Congratulations! Your partnership request with **Brawl Services™** has been **accepted**!\n\nWe look forward to working with you! 🤝\n\nA staff member will be in touch shortly with next steps.`)] });
+            const { partnershipAcceptedPanel } = require('../panels/partnership');
+            await interaction.message.edit(partnershipAcceptedPanel(p, user, interaction.user.tag)).catch(() => {});
+          } catch {}
+
+          if (interaction.message.thread) {
+            await interaction.message.thread.send(`✅ Partnership accepted. Thread deletes in 30 minutes.`).catch(() => {});
+            setTimeout(() => interaction.message.thread.delete().catch(() => {}), 30 * 60 * 1000);
+          }
+
+          return interaction.followUp({ content: `✅ Partnership accepted! Partner notified.`, ephemeral: true });
         }
 
         // Application accept/pending buttons
@@ -443,6 +518,88 @@ module.exports = {
     // ─────────────────────────────────────────────────────────────────────────
     if (interaction.isModalSubmit()) {
       try {
+        // Partnership application modal
+        if (interaction.customId === 'partner_modal') {
+          await interaction.deferReply({ ephemeral: true });
+          const PARTNER_QUESTIONS = [
+            'Your server name & invite link',
+            'Member count & activity level',
+            'What type of community is your server?',
+            'How will you promote Brawl Services™?',
+            "Anything else you'd like us to know?",
+          ];
+          const answers = {};
+          for (let i = 1; i <= 5; i++) {
+            const val = interaction.fields.getTextInputValue(`q${i}`);
+            if (val) answers[PARTNER_QUESTIONS[i - 1]] = val;
+          }
+          const { v4: uuidv4 } = require('uuid');
+          const partId = uuidv4();
+          const { rows: [p] } = await db.query(
+            `INSERT INTO partnerships (id, user_id, guild_id, answers) VALUES ($1,$2,$3,$4) RETURNING *`,
+            [partId, interaction.user.id, interaction.guild.id, JSON.stringify(answers)]
+          );
+          const appChannelId = process.env.APPLICATIONS_CHANNEL_ID;
+          if (appChannelId) {
+            const appCh = interaction.guild.channels.cache.get(appChannelId);
+            if (appCh) {
+              const { partnershipReviewPanel } = require('../panels/partnership');
+              const msg = await appCh.send(partnershipReviewPanel(p, interaction.user));
+              await db.query(`UPDATE partnerships SET review_message_id=$1, review_channel_id=$2 WHERE id=$3`, [msg.id, appCh.id, partId]);
+              try {
+                const thread = await msg.startThread({ name: `partnership-${interaction.user.username}`.slice(0, 100), autoArchiveDuration: 10080 });
+                await thread.send(`🤝 Partnership request from **${interaction.user.tag}**.\nStaff can discuss here. Only the owner can accept/decline.`);
+              } catch {}
+            }
+          }
+          return interaction.editReply({ embeds: [success('Request Submitted!',
+            `Your partnership request has been submitted!\n\n**ID:** \`#${partId.slice(0, 8).toUpperCase()}\`\n\nOur team will review it within **48 hours** and contact you via DM. 🤝`
+          )] });
+        }
+
+        // Partnership decline reason
+        if (interaction.customId.startsWith('partner_decline_reason_')) {
+          await interaction.deferReply({ ephemeral: true });
+          const partId = interaction.customId.replace('partner_decline_reason_', '');
+          const reason = interaction.fields.getTextInputValue('reason') || 'No reason provided';
+          const { rows } = await db.query(`SELECT * FROM partnerships WHERE id=$1`, [partId]);
+          if (!rows.length) return interaction.editReply({ content: '❌ Not found.' });
+          const p = rows[0];
+          await db.query(`UPDATE partnerships SET status='declined', reviewer_id=$1, reviewer_notes=$2, reviewed_at=NOW() WHERE id=$3`, [interaction.user.id, reason, partId]);
+          try {
+            const user = await interaction.client.users.fetch(p.user_id);
+            await user.send({ embeds: [base(COLORS.ERROR).setTitle(`❌ Partnership Declined`).setDescription(`Your partnership request with **Brawl Services™** has been **declined**.\n\n**Reason:** ${reason}\n\nYou may re-apply in the future.`)] });
+            if (p.review_message_id && p.review_channel_id) {
+              const ch = interaction.guild.channels.cache.get(p.review_channel_id);
+              const msg = ch ? await ch.messages.fetch(p.review_message_id).catch(() => null) : null;
+              if (msg) {
+                const { partnershipDeclinedPanel } = require('../panels/partnership');
+                await msg.edit(partnershipDeclinedPanel(p, user, interaction.user.tag, reason)).catch(() => {});
+                if (msg.thread) {
+                  await msg.thread.send(`❌ Declined. Thread deletes in 30 minutes.`).catch(() => {});
+                  setTimeout(() => msg.thread.delete().catch(() => {}), 30 * 60 * 1000);
+                }
+              }
+            }
+          } catch {}
+          return interaction.editReply({ embeds: [success('Declined', `Partnership request declined. Applicant notified.`)] });
+        }
+
+        // Partnership request more info
+        if (interaction.customId.startsWith('partner_info_msg_')) {
+          await interaction.deferReply({ ephemeral: true });
+          const partId = interaction.customId.replace('partner_info_msg_', '');
+          const message = interaction.fields.getTextInputValue('message');
+          const { rows } = await db.query(`SELECT * FROM partnerships WHERE id=$1`, [partId]);
+          if (!rows.length) return interaction.editReply({ content: '❌ Not found.' });
+          const p = rows[0];
+          try {
+            const user = await interaction.client.users.fetch(p.user_id);
+            await user.send({ embeds: [base(COLORS.INFO).setTitle(`📩 Info Requested — Partnership #${partId.slice(0,8).toUpperCase()}`).setDescription(`Our team is reviewing your partnership request and needs some additional information:\n\n**${message}**\n\nPlease reply by opening a ticket in **Brawl Services™**.`)] });
+          } catch {}
+          return interaction.editReply({ embeds: [success('Sent', `Additional info request sent to the applicant.`)] });
+        }
+
         // Application form
         if (interaction.customId.startsWith('app_modal_')) {
           await interaction.deferReply({ ephemeral: true });
