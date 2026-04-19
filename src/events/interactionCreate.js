@@ -97,7 +97,7 @@ module.exports = {
 
       try {
         // Panel navigation
-        if (id === 'panel_main')    return interaction.editReply(panels.mainMenuPanel());
+        if (id === 'panel_main')    return interaction.followUp({ ...panels.mainMenuPanel(), ephemeral: true });
         if (id === 'panel_prices')  return interaction.editReply(panels.pricesPanel());
         if (id === 'panel_order')   return interaction.editReply(panels.orderPanel());
         if (id === 'panel_ticket')  return interaction.editReply(panels.ticketPanel());
@@ -254,6 +254,16 @@ module.exports = {
               const { applicationAcceptedPanel } = require('../panels/applications');
               await interaction.message.edit(applicationAcceptedPanel(app, user, interaction.user.tag)).catch(() => {});
             } catch {}
+
+            // Auto-delete thread after 30 minutes
+            if (interaction.message.thread) {
+              const thread = interaction.message.thread;
+              await thread.send(`✅ Application accepted. This thread will be **automatically deleted in 30 minutes**.`).catch(() => {});
+              setTimeout(async () => {
+                await thread.delete().catch(() => {});
+              }, 30 * 60 * 1000);
+            }
+
             return interaction.followUp({ content: `✅ Accepted! Role assigned and applicant notified.`, ephemeral: true });
           }
 
@@ -488,6 +498,14 @@ module.exports = {
               if (msg) {
                 const { applicationDeclinedPanel } = require('../panels/applications');
                 await msg.edit(applicationDeclinedPanel(app, user, interaction.user.tag, reason)).catch(() => {});
+
+                // Auto-delete thread after 30 minutes
+                if (msg.thread) {
+                  await msg.thread.send(`❌ Application declined. This thread will be **automatically deleted in 30 minutes**.`).catch(() => {});
+                  setTimeout(async () => {
+                    await msg.thread.delete().catch(() => {});
+                  }, 30 * 60 * 1000);
+                }
               }
             }
           } catch {}
