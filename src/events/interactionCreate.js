@@ -5,6 +5,14 @@ const { getEmojis, COLORS } = require('../utils/constants');
 const { base, success, error } = require('../utils/embeds');
 const { createTicket, closeTicket } = require('../utils/ticketManager');
 const panels = require('../panels');
+const {
+  orderFlowServicePanel,
+  orderFlowFromPanel,
+  orderFlowToPanel,
+  orderFlowTypePanel,
+  orderFlowConfirmPanel,
+  getPrice,
+} = require('../panels/orderFlow');
 
 const APP_QUESTIONS = {
   staff:   ['What is your age and timezone?', 'Hours per week available for staff duties?', 'Previous Discord mod/staff experience?', 'Why do you want to be Staff at Brawl Services™?', 'How would you handle a customer vs booster dispute?'],
@@ -137,14 +145,177 @@ module.exports = {
       }
 
       try {
-        // Panel navigation
+
+        // ── ORDER FLOW BUTTONS ─────────────────────────────────────────────
+
+        // Step 4 → 5: boost/carry type chosen
+        // customId: oflow_type_<serviceType>_<fromVal>_<toVal>_<boostType>
+        if (id.startsWith('oflow_type_')) {
+          const rest      = id.replace('oflow_type_', '');
+          // boostType is always the last segment
+          const lastUnderscore = rest.lastIndexOf('_');
+          const boostType = rest.slice(lastUnderscore + 1);          // 'boost' | 'carry'
+          const middle    = rest.slice(0, lastUnderscore);
+          // middle = <serviceType>_<fromVal>_<toVal>
+          // serviceType is always the first segment
+          const firstUnderscore = middle.indexOf('_');
+          const serviceType = middle.slice(0, firstUnderscore);
+          const fromTo      = middle.slice(firstUnderscore + 1);
+          // fromVal & toVal are separated by the last underscore in fromTo
+          // BUT rank values can themselves contain underscores (e.g. Bronze_I)
+          // so we find the split point by matching known rank values
+          // Strategy: serviceType tells us how many segments fromVal has
+          let fromVal, toVal;
+          if (serviceType === 'winstreak') {
+            // winstreak has no fromVal; toVal is the amount
+            fromVal = 'none';
+            toVal   = fromTo;
+          } else if (serviceType === 'prestige') {
+            // Prestige_1, Prestige_2, Prestige_3, None — all one underscore max
+            // fromTo = "<from>_<to>" where each part is one of: None, Prestige_1/2/3
+            const parts = fromTo.split('_');
+            // None has 1 part, Prestige_X has 2 parts
+            if (parts[0] === 'None') {
+              fromVal = 'None';
+              toVal   = parts.slice(1).join('_');
+            } else {
+              fromVal = parts.slice(0, 2).join('_'); // Prestige_1
+              toVal   = parts.slice(2).join('_');    // Prestige_2
+            }
+          } else {
+            // Ranked: fromVal = first 2 segments (e.g. Bronze_I), toVal = rest
+            const parts = fromTo.split('_');
+            if (parts[0] === 'Pro') {
+              fromVal = 'Pro';
+              toVal   = parts.slice(1).join('_');
+            } else {
+              fromVal = parts.slice(0, 2).join('_');
+              toVal   = parts.slice(2).join('_');
+            }
+          }
+          return interaction.followUp({
+            ...orderFlowConfirmPanel(serviceType, fromVal, toVal, boostType),
+            ephemeral: true,
+          });
+        }
+
+        // Step 5 → 6: confirm button pressed — create the order
+        // customId: oflow_confirm_<serviceType>_<fromVal>_<toVal>_<boostType>
+        if (id.startsWith('oflow_confirm_')) {
+          const rest = id.replace('oflow_confirm_', '');
+          // Same parsing logic as above
+          const lastUnderscore = rest.lastIndexOf('_');
+          const boostType      = rest.slice(lastUnderscore + 1);
+          const middle         = rest.slice(0, lastUnderscore);
+          const firstUnderscore = middle.indexOf('_');
+          const serviceType    = middle.slice(0, firstUnderscore);
+          const fromTo         = middle.slice(firstUnderscore + 1);
+
+          let fromVal, toVal;
+          if (serviceType === 'winstreak') {
+            fromVal = 'none';
+            toVal   = fromTo;
+          } else if (serviceType === 'prestige') {
+            const parts = fromTo.split('_');
+            if (parts[0] === 'None') {
+              fromVal = 'None';
+              toVal   = parts.slice(1).join('_');
+            } else {
+              fromVal = parts.slice(0, 2).join('_');
+              toVal   = parts.slice(2).join('_');
+            }
+          } else {
+            const parts = fromTo.split('_');
+            if (parts[0] === 'Pro') {
+              fromVal = 'Pro';
+              toVal   = parts.slice(1).join('_');
+            } else {
+              fromVal = parts.slice(0, 2).join('_');
+              toVal   = parts.slice(2).join('_');
+            }
+          }
+
+          const price = getPrice(serviceType, fromVal, toVal, boostType);
+          if (!price) {
+            return interaction.followUp({ content: `❌ Could not calculate price for this route. Please start over.`, ephemeral: true });
+          }
+
+          const fromLabel = fromVal.replace(/_/g, ' ');
+          const toLabel   = toVal.replace(/_/g, ' ');
+          let serviceLabel, routeText;
+          if (serviceType === 'ranked') {
+            serviceLabel = 'Ranked Boost';
+            routeText    = `${fromLabel} → ${toLabel}`;
+          } else if (serviceType === 'prestige') {
+            serviceLabel = 'Prestige Boost';
+            routeText    = `${fromLabel === 'None' ? 'No prestige' : fromLabel} → ${toLabel}`;
+          } else {
+            serviceLabel = 'Win Streak Farm';
+            routeText    = `${toVal} Wins`;
+          }
+
+          // Create the order in DB
+          const { v4: uuidv4 } = require('uuid');
+          const orderId = uuidv4();
+          await db.query(
+            `INSERT INTO orders (id, user_id, guild_id, service_type, from_rank, to_rank, boost_type, price)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            [orderId, interaction.user.id, interaction.guild.id, serviceLabel, fromLabel, toLabel, boostType, price]
+          );
+
+          // Open a ticket
+          const ticketChannel = await createTicket(interaction.guild, interaction.user, 'order');
+          await db.query(`UPDATE orders SET ticket_channel_id=$1 WHERE id=$2`, [ticketChannel.id, orderId]);
+
+          // Send order summary + payment panel in ticket
+          await ticketChannel.send({
+            embeds: [
+              base(COLORS.INFO)
+                .setTitle(`📦 Order #${orderId.slice(0, 8).toUpperCase()}`)
+                .setDescription(
+                  `**Service:** ${serviceLabel}\n` +
+                  `**Route:** ${routeText}\n` +
+                  `**Type:** ${boostType === 'carry' ? '🤝 Carry' : '⚡ Boost'}\n` +
+                  `**Price:** **€${price.toFixed(2)}**\n\n` +
+                  `Complete payment below to start your order!`
+                ),
+            ],
+          });
+
+          const { paymentPanel } = require('../panels');
+          await ticketChannel.send(paymentPanel(orderId, price, `${serviceLabel} – ${routeText}`));
+
+          // Post claim panel for boosters
+          const { sendClaimPanel } = require('../utils/claimRouter');
+          const { rows: [o] } = await db.query(`SELECT * FROM orders WHERE id=$1`, [orderId]);
+          if (o) await sendClaimPanel(interaction.guild, o, 'order');
+
+          return interaction.followUp({
+            embeds: [
+              success(
+                '✅ Order Placed!',
+                `**Service:** ${serviceLabel}\n` +
+                `**Route:** ${routeText}\n` +
+                `**Type:** ${boostType === 'carry' ? '🤝 Carry' : '⚡ Boost'}\n` +
+                `**Price:** **€${price.toFixed(2)}**\n\n` +
+                `🎫 Your ticket: ${ticketChannel}\n\nComplete payment in your ticket to get started!`
+              ),
+            ],
+            ephemeral: true,
+          });
+        }
+
+        // ── PANEL NAVIGATION ──────────────────────────────────────────────
+
+        // Place Order → kick off the new flow instead of old static panel
+        if (id === 'panel_order')   return interaction.followUp({ ...orderFlowServicePanel(), ephemeral: true });
         if (id === 'panel_main')    return interaction.followUp({ ...panels.mainMenuPanel(),  ephemeral: true });
         if (id === 'panel_prices')  return interaction.followUp({ ...panels.pricesPanel(),    ephemeral: true });
-        if (id === 'panel_order')   return interaction.followUp({ ...panels.orderPanel(),     ephemeral: true });
         if (id === 'panel_ticket')  return interaction.followUp({ ...panels.ticketPanel(),    ephemeral: true });
         if (id === 'panel_vouches') return interaction.followUp({ ...panels.vouchPanel(),     ephemeral: true });
-        
-        // Ticket actions
+
+        // ── TICKET ACTIONS ────────────────────────────────────────────────
+
         if (id.startsWith('ticket_claim_')) {
           const channelId = id.replace('ticket_claim_', '');
           const { rows } = await db.query(`SELECT * FROM tickets WHERE channel_id=$1`, [channelId]);
@@ -161,7 +332,8 @@ module.exports = {
           return closeTicket(interaction.channel, interaction.user.toString(), 'Closed via button');
         }
 
-        // Claim order
+        // ── CLAIM ORDER ───────────────────────────────────────────────────
+
         if (id.startsWith('claim_order_')) {
           const orderId = id.replace('claim_order_', '');
           const { rows } = await db.query(`SELECT * FROM orders WHERE id=$1`, [orderId]);
@@ -184,7 +356,8 @@ module.exports = {
           return interaction.followUp({ content: `✅ You've claimed order \`#${orderId.slice(0,8).toUpperCase()}\`!`, ephemeral: true });
         }
 
-        // Claim coaching
+        // ── CLAIM COACHING ────────────────────────────────────────────────
+
         if (id.startsWith('claim_coaching_')) {
           const sessionId = id.replace('claim_coaching_', '');
           const { rows } = await db.query(`SELECT * FROM coaching_sessions WHERE id=$1`, [sessionId]);
@@ -194,7 +367,8 @@ module.exports = {
           return interaction.followUp({ content: `✅ You've claimed coaching session \`#${sessionId.slice(0,8).toUpperCase()}\`!`, ephemeral: true });
         }
 
-        // Payment buttons
+        // ── PAYMENT BUTTONS ───────────────────────────────────────────────
+
         if (id.startsWith('pay_')) {
           const parts = id.split('_');
           const method = parts[1];
@@ -241,7 +415,8 @@ module.exports = {
           }
         }
 
-        // Staff panel buttons
+        // ── STAFF PANEL BUTTONS ───────────────────────────────────────────
+
         if (id === 'staff_orders') {
           const { rows } = await db.query(`SELECT * FROM orders WHERE status IN ('pending','paid','in_progress') ORDER BY created_at DESC LIMIT 10`);
           return interaction.followUp({ embeds: [base(COLORS.INFO).setTitle(`📦 Active Orders`).setDescription(rows.length ? rows.map(o => `\`#${o.id.slice(0,8).toUpperCase()}\` <@${o.user_id}> | ${o.service_type} | ${o.status.toUpperCase()}`).join('\n') : '*No active orders.*')], ephemeral: true });
@@ -259,7 +434,8 @@ module.exports = {
           return interaction.followUp({ embeds: [base(COLORS.ERROR).setTitle(`🚫 Banned Users`).setDescription(rows.length ? rows.map(u => `<@${u.id}> — *${u.ban_reason || 'No reason'}*`).join('\n') : '*No banned users.*')], ephemeral: true });
         }
 
-        // Account buttons
+        // ── ACCOUNT BUTTONS ───────────────────────────────────────────────
+
         if (id === 'account_browse') {
           const { rows } = await db.query(`SELECT * FROM accounts WHERE status='available' ORDER BY price ASC LIMIT 10`);
           return interaction.followUp({ embeds: [base(COLORS.PRIMARY).setTitle(`🎮 Available Accounts`).setDescription(rows.length ? rows.map((a, i) => `**${i+1}.** \`#${a.id.slice(0,8).toUpperCase()}\` ${a.current_rank} | ${a.brawler_count} brawlers | €${a.price}`).join('\n') : '*No accounts available.*')], ephemeral: true });
@@ -269,7 +445,8 @@ module.exports = {
           return interaction.followUp({ content: `✅ Account enquiry ticket opened: ${ch}`, ephemeral: true });
         }
 
-        // Partnership accept button
+        // ── PARTNERSHIP ACCEPT ────────────────────────────────────────────
+
         if (id.startsWith('partner_accept_')) {
           const ownerId = process.env.OWNER_ID;
           if (ownerId && interaction.user.id !== ownerId)
@@ -282,7 +459,6 @@ module.exports = {
 
           await db.query(`UPDATE partnerships SET status='accepted', reviewer_id=$1, reviewed_at=NOW() WHERE id=$2`, [interaction.user.id, partId]);
 
-          // Assign partner role if set
           if (process.env.PARTNER_ROLE_ID) {
             const member = await interaction.guild.members.fetch(p.user_id).catch(() => null);
             if (member) await member.roles.add(process.env.PARTNER_ROLE_ID).catch(() => {});
@@ -303,7 +479,8 @@ module.exports = {
           return interaction.followUp({ content: `✅ Partnership accepted! Partner notified.`, ephemeral: true });
         }
 
-        // Application accept/pending buttons
+        // ── APPLICATION ACCEPT/PENDING ────────────────────────────────────
+
         if (id.startsWith('app_accept_') || id.startsWith('app_pending_')) {
           const ownerId = process.env.OWNER_ID;
           if (ownerId && interaction.user.id !== ownerId)
@@ -330,13 +507,10 @@ module.exports = {
               await interaction.message.edit(applicationAcceptedPanel(app, user, interaction.user.tag)).catch(() => {});
             } catch {}
 
-            // Auto-delete thread after 30 minutes
             if (interaction.message.thread) {
               const thread = interaction.message.thread;
               await thread.send(`✅ Application accepted. This thread will be **automatically deleted in 30 minutes**.`).catch(() => {});
-              setTimeout(async () => {
-                await thread.delete().catch(() => {});
-              }, 30 * 60 * 1000);
+              setTimeout(async () => { await thread.delete().catch(() => {}); }, 30 * 60 * 1000);
             }
 
             return interaction.followUp({ content: `✅ Accepted! Role assigned and applicant notified.`, ephemeral: true });
@@ -348,7 +522,8 @@ module.exports = {
           }
         }
 
-        // Coaching booking buttons
+        // ── COACHING BOOKING BUTTONS ──────────────────────────────────────
+
         if (id === 'cbk_back_main') {
           const { coachingMainPanel } = require('../panels/coachingBooking');
           return interaction.editReply(coachingMainPanel());
@@ -429,7 +604,6 @@ module.exports = {
           await ticketChannel.send(`🎓 **Coaching session booked!**\n**Type:** ${pricing.label}\n**Date:** ${displayDate}\n**Time:** ${time} CET\n**Price:** €${pricing.price}\n\nComplete payment below to confirm your slot.`);
           const { paymentPanel } = require('../panels');
           await ticketChannel.send(paymentPanel(sessionId, pricing.price, `Coaching – ${pricing.label} on ${displayDate} at ${time}`));
-          // AFTER – routes to COACHING_CLAIM_CHANNEL_ID
           const { sendClaimPanel } = require('../utils/claimRouter');
           const { rows: [s] } = await db.query(`SELECT * FROM coaching_sessions WHERE id=$1`, [sessionId]);
           if (s) await sendClaimPanel(interaction.guild, s, 'coaching');
@@ -450,6 +624,52 @@ module.exports = {
       await interaction.deferUpdate().catch(() => {});
 
       try {
+
+        // ── ORDER FLOW SELECT MENUS ────────────────────────────────────────
+
+        // Step 1 → 2: service type chosen
+        if (id === 'oflow_service') {
+          const serviceType = interaction.values[0];
+          return interaction.followUp({ ...orderFlowFromPanel(serviceType), ephemeral: true });
+        }
+
+        // Step 2 → 3: from rank chosen (or win streak amount chosen)
+        if (id.startsWith('oflow_from_')) {
+          const serviceType = id.replace('oflow_from_', '');
+          const fromVal     = interaction.values[0];
+
+          if (serviceType === 'winstreak') {
+            // Win streak: fromVal IS the amount, skip "to" step, go straight to boost/carry
+            return interaction.followUp({
+              ...orderFlowTypePanel(serviceType, 'none', fromVal),
+              ephemeral: true,
+            });
+          }
+
+          const toPanel = orderFlowToPanel(serviceType, fromVal);
+          if (!toPanel) {
+            // Fallback — shouldn't happen
+            return interaction.followUp({ content: '❌ Invalid rank selection. Please start over.', ephemeral: true });
+          }
+          return interaction.followUp({ ...toPanel, ephemeral: true });
+        }
+
+        // Step 3 → 4: to rank chosen
+        if (id.startsWith('oflow_to_')) {
+          const rest        = id.replace('oflow_to_', '');
+          const firstUnderscore = rest.indexOf('_');
+          const serviceType = rest.slice(0, firstUnderscore);
+          const fromVal     = rest.slice(firstUnderscore + 1);
+          const toVal       = interaction.values[0];
+
+          return interaction.followUp({
+            ...orderFlowTypePanel(serviceType, fromVal, toVal),
+            ephemeral: true,
+          });
+        }
+
+        // ── EXISTING SELECT MENUS ──────────────────────────────────────────
+
         if (id === 'order_service_select') {
           const service = interaction.values[0];
           if (service === 'coaching') {
@@ -514,7 +734,6 @@ module.exports = {
     // ─────────────────────────────────────────────────────────────────────────
     if (interaction.isModalSubmit()) {
       try {
-        // Partnership application modal
         if (interaction.customId === 'partner_modal') {
           await interaction.deferReply({ ephemeral: true });
           const PARTNER_QUESTIONS = [
@@ -553,7 +772,6 @@ module.exports = {
           )] });
         }
 
-        // Partnership decline reason
         if (interaction.customId.startsWith('partner_decline_reason_')) {
           await interaction.deferReply({ ephemeral: true });
           const partId = interaction.customId.replace('partner_decline_reason_', '');
@@ -581,7 +799,6 @@ module.exports = {
           return interaction.editReply({ embeds: [success('Declined', `Partnership request declined. Applicant notified.`)] });
         }
 
-        // Partnership request more info
         if (interaction.customId.startsWith('partner_info_msg_')) {
           await interaction.deferReply({ ephemeral: true });
           const partId = interaction.customId.replace('partner_info_msg_', '');
@@ -596,7 +813,6 @@ module.exports = {
           return interaction.editReply({ embeds: [success('Sent', `Additional info request sent to the applicant.`)] });
         }
 
-        // Application form
         if (interaction.customId.startsWith('app_modal_')) {
           await interaction.deferReply({ ephemeral: true });
           const type = interaction.customId.replace('app_modal_', '');
@@ -633,7 +849,6 @@ module.exports = {
           )] });
         }
 
-        // Decline reason
         if (interaction.customId.startsWith('app_decline_reason_')) {
           await interaction.deferReply({ ephemeral: true });
           const appId = interaction.customId.replace('app_decline_reason_', '');
@@ -651,13 +866,9 @@ module.exports = {
               if (msg) {
                 const { applicationDeclinedPanel } = require('../panels/applications');
                 await msg.edit(applicationDeclinedPanel(app, user, interaction.user.tag, reason)).catch(() => {});
-
-                // Auto-delete thread after 30 minutes
                 if (msg.thread) {
                   await msg.thread.send(`❌ Application declined. This thread will be **automatically deleted in 30 minutes**.`).catch(() => {});
-                  setTimeout(async () => {
-                    await msg.thread.delete().catch(() => {});
-                  }, 30 * 60 * 1000);
+                  setTimeout(async () => { await msg.thread.delete().catch(() => {}); }, 30 * 60 * 1000);
                 }
               }
             }
@@ -665,7 +876,6 @@ module.exports = {
           return interaction.editReply({ embeds: [success('Declined', `Application \`#${appId.slice(0, 8).toUpperCase()}\` declined. Applicant notified.`)] });
         }
 
-        // Vouch
         if (interaction.customId === 'modal_vouch_submit') {
           await interaction.deferReply({ ephemeral: true });
           const rating  = parseInt(interaction.fields.getTextInputValue('vouch_rating'));
