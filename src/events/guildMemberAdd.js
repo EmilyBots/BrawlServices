@@ -2,6 +2,7 @@
 const { Events, EmbedBuilder, AttachmentBuilder } = require('discord.js');
 const db = require('../database');
 const { COLORS } = require('../utils/constants');
+const { logger } = require('../utils/logger');
 
 module.exports = {
   name: Events.GuildMemberAdd,
@@ -123,6 +124,9 @@ module.exports = {
       if (process.env.AUTO_ROLE_ID) {
         await member.roles.add(process.env.AUTO_ROLE_ID).catch(() => {});
       }
+
+      // Log member join
+      logger.memberJoin(member.client, guild.id, member, inviterUser, usedCode, inviterTotal);
 
     } catch (err) {
       console.error('[guildMemberAdd] Welcome message error:', err.message);
