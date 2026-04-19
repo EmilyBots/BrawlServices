@@ -155,15 +155,11 @@ module.exports = {
 
         // send payment panel inside ticket
         await ticketChannel.send(paymentPanel(orderId, price, `${service} – ${fromRank} → ${toRank}`));
-
-        // notify boosters
-        if (process.env.ORDER_LOG_CHANNEL_ID) {
-          const logCh = interaction.guild.channels.cache.get(process.env.ORDER_LOG_CHANNEL_ID);
-          if (logCh) {
-            const orderRow = await db.query(`SELECT * FROM orders WHERE id=$1`, [orderId]);
-            logCh.send({ ...claimOrderPanel(orderRow.rows[0]) });
-          }
-        }
+        
+        // notify boosters in the correct claim channel
+        const { sendClaimPanel } = require('../utils/claimRouter');
+        const { rows: [orderRow] } = await db.query(`SELECT * FROM orders WHERE id=$1`, [orderId]);
+        if (orderRow) await sendClaimPanel(interaction.guild, orderRow, 'order');
 
         return interaction.editReply({ embeds: [embed] });
       }
