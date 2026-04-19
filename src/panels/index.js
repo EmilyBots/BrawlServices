@@ -12,7 +12,7 @@ const logo = () => new AttachmentBuilder('assets/logo.png', { name: 'logo.png' }
 function mainMenuPanel() {
   const em = getEmojis();
   const embed = base(COLORS.PRIMARY)
-    .setTitle('🏆 Brawl Services™')
+    .setTitle('# 🏆 Brawl Services™')
     .setDescription(
       `> **Welcome to the #1 Brawl Stars Boosting Service!**\n\n` +
       `We offer **fast**, **reliable** and **safe** services for all ranks.\n\n` +
@@ -40,7 +40,7 @@ function mainMenuPanel() {
 function pricesPanel() {
   const em = getEmojis();
   const embed = base(COLORS.PRIMARY)
-    .setTitle('💰 PRICES – Brawl Services™')
+    .setTitle('# 💰 PRICES – Brawl Services™')
     .setDescription(
       `## ⚔️ Ranked Boosts\n` +
       `### 🕹️ Boost *(we play on your account)*\n` +
