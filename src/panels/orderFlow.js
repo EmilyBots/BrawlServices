@@ -65,30 +65,55 @@ const WINSTREAK_OPTIONS = [
 
 // ─── PRICING ─────────────────────────────────────────────────────────────────
 
-// Returns price in € for a given service, from→to, boost type
-// Returns null if the route is invalid
+/**
+ * Returns the total price in € for a given route.
+ *
+ * For ranked, prices are per TIER CROSSED (not per rank subdivision).
+ * Multi-tier routes sum every segment price along the way, e.g.:
+ *   Bronze → Diamond boost  = 3 + 6 + 8 = €17
+ *   Bronze → Pro    boost   = 3 + 6 + 8 + 15 + 18 + 35 + 210 = €295
+ *   Bronze → Pro    carry   = (3+6+8+15+18+35)×2 + 210      = €380
+ *
+ * The Masters → Pro segment is always €210 for both boost and carry.
+ * Carry is only *blocked* when the player is already at Masters (starts from Masters).
+ *
+ * Returns null if the route is invalid.
+ */
 function getPrice(serviceType, fromVal, toVal, boostType) {
   const multiplier = boostType === 'carry' ? 2 : 1;
 
   if (serviceType === 'ranked') {
-    const TIER_PRICES = {
+    // Tier order, lowest → highest
+    const TIER_ORDER = ['Bronze', 'Silver', 'Gold', 'Diamond', 'Mythic', 'Legendary', 'Masters', 'Pro'];
+
+    // Cost to advance FROM this tier to the very next tier
+    const TIER_SEGMENT_PRICES = {
       Bronze:    3,
       Silver:    6,
       Gold:      8,
       Diamond:   15,
       Mythic:    18,
       Legendary: 35,
-      Masters:   210,
+      Masters:   210, // Masters → Pro is always €210 (same for boost and carry)
     };
-    // Masters → Pro is boost only
-    if (fromVal.startsWith('Masters') && toVal === 'Pro') {
-      return boostType === 'carry' ? null : 210;
-    }
+
     const fromTier = fromVal.split('_')[0];
-    const toTier   = toVal.split('_')[0];
-    const price    = TIER_PRICES[fromTier];
-    if (!price || fromTier === toTier) return null;
-    return price * multiplier;
+    const toTier   = toVal === 'Pro' ? 'Pro' : toVal.split('_')[0];
+
+    const fromIdx = TIER_ORDER.indexOf(fromTier);
+    const toIdx   = TIER_ORDER.indexOf(toTier);
+
+    if (fromIdx === -1 || toIdx === -1 || toIdx <= fromIdx) return null;
+
+    // Sum every tier segment crossed.
+    // Carry multiplier applies to every segment except Masters → Pro.
+    let total = 0;
+    for (let i = fromIdx; i < toIdx; i++) {
+      const tier = TIER_ORDER[i];
+      const segmentPrice = TIER_SEGMENT_PRICES[tier];
+      total += tier === 'Masters' ? segmentPrice : segmentPrice * multiplier;
+    }
+    return total;
   }
 
   if (serviceType === 'prestige') {
@@ -163,7 +188,6 @@ function orderFlowFromPanel(serviceType) {
     desc  = `> What is your **current prestige**?`;
   } else {
     // Win streak: no "from" concept — skip straight to amount
-    // We re-use this step to pick how many wins
     options = WINSTREAK_OPTIONS.map(o => ({ label: o.label, value: o.value, emoji: o.emoji }));
     title = '🔥 Win Streak Farm — Amount';
     desc  = `> How many wins do you want farmed?`;
@@ -174,7 +198,6 @@ function orderFlowFromPanel(serviceType) {
     .setDescription(desc)
     .setThumbnail('attachment://logo.png');
 
-  // Discord select menu max 25 options — ranked has 21 so we're fine
   const select = new StringSelectMenuBuilder()
     .setCustomId(`oflow_from_${serviceType}`)
     .setPlaceholder('Select...')
@@ -197,17 +220,13 @@ function orderFlowToPanel(serviceType, fromVal) {
     // Only show ranks higher than the selected from rank
     const fromIdx = RANKED_RANKS.findIndex(r => r.value === fromVal);
     const higher  = RANKED_RANKS.slice(fromIdx + 1);
-    if (higher.length === 0) {
-      // Already at Pro — shouldn't happen but guard anyway
-      return null;
-    }
+    if (higher.length === 0) return null;
     options = higher.map(r => ({ label: r.label, value: r.value, emoji: r.emoji }));
     embed
       .setTitle('⚔️ Ranked Boost — Target Rank')
       .setDescription(`> You're at **${fromVal.replace('_', ' ')}**. Where do you want to go?`);
 
   } else if (serviceType === 'prestige') {
-    // Only show prestiges higher than current
     const fromIdx  = ['None', 'Prestige_1', 'Prestige_2'].indexOf(fromVal);
     const higher   = PRESTIGE_RANKS.slice(fromIdx);
     options = higher.map(r => ({ label: r.label, value: r.value, emoji: r.emoji }));
@@ -217,7 +236,7 @@ function orderFlowToPanel(serviceType, fromVal) {
 
   } else {
     // Win streak — fromVal IS the amount; skip to boost type directly
-    return null; // signal to jump straight to boost type step
+    return null;
   }
 
   const select = new StringSelectMenuBuilder()
@@ -237,7 +256,7 @@ function orderFlowToPanel(serviceType, fromVal) {
 function orderFlowTypePanel(serviceType, fromVal, toVal) {
   const em = getEmojis();
 
-  // Masters→Pro is boost only
+  // Carry is only blocked when the player is already at Masters (single segment)
   const boostOnly = serviceType === 'ranked' && fromVal.startsWith('Masters') && toVal === 'Pro';
 
   const boostPrice = getPrice(serviceType, fromVal, toVal, 'boost');
@@ -263,7 +282,7 @@ function orderFlowTypePanel(serviceType, fromVal, toVal) {
       `⚡ **Boost** — We play *on your account*\n` +
       `${boostPrice != null ? `> Price: **€${boostPrice.toFixed(2)}**` : ``}\n\n` +
       (!boostOnly
-        ? `🤝 **Carry** — We play *together with you* (2× price)\n` +
+        ? `🤝 **Carry** — We play *together with you*\n` +
           `${carryPrice != null ? `> Price: **€${carryPrice.toFixed(2)}**` : ``}`
         : `> ⚠️ *Carry is not available for Masters → Pro*`
       )
