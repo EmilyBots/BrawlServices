@@ -3,7 +3,6 @@
 const {
   AttachmentBuilder,
 } = require('discord.js');
-const fs   = require('fs');
 const path = require('path');
 const { COLORS } = require('../utils/constants');
 const { base }   = require('../utils/embeds');
@@ -16,11 +15,20 @@ const logo = () => new AttachmentBuilder(
   { name: 'logo.png' }
 );
 
-// Used on edits — converts the file to a base64 data URI so Discord
-// can render it as a thumbnail without needing a re-upload
-function logoDataURI() {
-  const buf = fs.readFileSync(path.resolve('assets/logo.png'));
-  return `data:image/png;base64,${buf.toString('base64')}`;
+// Cached CDN URL — populated after the first post, reused on all edits.
+// Discord.js v14 does not accept data URIs in setThumbnail(); only https://
+// URLs or null are valid. We grab the CDN URL from the sent message instead.
+let logoCdnUrl = null;
+
+/**
+ * Call this once after the initial /stafflist post so every subsequent
+ * edit can reuse the CDN-hosted URL instead of re-uploading the file.
+ *
+ * @param {import('discord.js').Message} message  The message returned by channel.send()
+ */
+function cacheLogoCdnUrl(message) {
+  const attachment = message.attachments.find(a => a.name === 'logo.png');
+  if (attachment) logoCdnUrl = attachment.url;
 }
 
 // ─── STAFF ROLE CONFIG ─────────────────────────────────────────────────────
@@ -53,10 +61,18 @@ function loadStaffRoles() {
  * @param {import('discord.js').Guild} guild
  * @param {{ filesIncluded?: boolean }} [opts]
  *   filesIncluded – true  → initial post, uploads logo as attachment
- *                   false → edit, uses base64 data URI for thumbnail
+ *                   false → edit, uses cached CDN URL for thumbnail (or null)
  */
 async function staffListPanel(guild, { filesIncluded = true } = {}) {
   const staffRoles = loadStaffRoles();
+
+  // Resolve thumbnail source:
+  //   • Initial post  → Discord resolves "attachment://logo.png" from the uploaded file
+  //   • Subsequent edits → reuse the CDN URL cached after the first post
+  //   • Edge case (edit before any post) → null, thumbnail is simply omitted
+  const thumbnail = filesIncluded
+    ? 'attachment://logo.png'
+    : (logoCdnUrl ?? null);
 
   // ── Graceful fallback if env is misconfigured ────────────────────────────
   if (staffRoles.length === 0) {
@@ -67,7 +83,7 @@ async function staffListPanel(guild, { filesIncluded = true } = {}) {
         `Set \`STAFF_ROLE_1_ID\` and \`STAFF_ROLE_1_NAME\` … ` +
         `\`STAFF_ROLE_13_ID\` and \`STAFF_ROLE_13_NAME\` in your Railway env.`
       )
-      .setThumbnail(filesIncluded ? 'attachment://logo.png' : logoDataURI())
+      .setThumbnail(thumbnail)
       .setFooter({ text: 'Brawl Services™ Staff List' })
       .setTimestamp();
 
@@ -128,7 +144,7 @@ async function staffListPanel(guild, { filesIncluded = true } = {}) {
   const embed = base(COLORS.INFO)
     .setTitle('👥 Staff List – Brawl Services™')
     .setDescription(description)
-    .setThumbnail(filesIncluded ? 'attachment://logo.png' : logoDataURI())
+    .setThumbnail(thumbnail)
     .setFooter({ text: 'Auto-updates every 5 minutes  •  Brawl Services™' })
     .setTimestamp();
 
@@ -144,6 +160,10 @@ let   autoUpdateInterval  = null;
 /**
  * Starts the 5-minute auto-edit loop.
  * Safe to call multiple times — clears any previous interval first.
+ *
+ * On startup, if STAFF_LIST_CHANNEL_ID and STAFF_LIST_MESSAGE_ID are already
+ * set, the existing message is fetched and its attachment URL is cached so the
+ * thumbnail continues to render correctly after a bot restart.
  *
  * @param {import('discord.js').Client} client
  */
@@ -165,6 +185,9 @@ function startStaffListAutoUpdate(client) {
 
       const message = await channel.messages.fetch(messageId).catch(() => null);
       if (!message) return console.warn('[StaffList] Message not found — check STAFF_LIST_MESSAGE_ID.');
+
+      // Re-hydrate the CDN URL cache after a bot restart
+      if (!logoCdnUrl) cacheLogoCdnUrl(message);
 
       const payload = await staffListPanel(channel.guild, { filesIncluded: false });
       await message.edit(payload);
@@ -205,6 +228,9 @@ async function forceRefreshStaffList(client) {
     const message = await channel.messages.fetch(messageId).catch(() => null);
     if (!message) return { ok: false, error: 'Message not found. Check `STAFF_LIST_MESSAGE_ID`.' };
 
+    // Re-hydrate the CDN URL cache after a bot restart
+    if (!logoCdnUrl) cacheLogoCdnUrl(message);
+
     const payload = await staffListPanel(channel.guild, { filesIncluded: false });
     await message.edit(payload);
 
@@ -219,4 +245,5 @@ module.exports = {
   staffListPanel,
   startStaffListAutoUpdate,
   forceRefreshStaffList,
+  cacheLogoCdnUrl,
 };
