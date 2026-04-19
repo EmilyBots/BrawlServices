@@ -1,17 +1,17 @@
 // src/events/ready.js
 const { Events, ActivityType } = require('discord.js');
 const db = require('../database');
+const { startStaffListAutoUpdate } = require('../panels/staffListPanel');
 
 module.exports = {
   name: Events.ClientReady,
   once: true,
-
   async execute(client) {
     console.log(`\n✅  Logged in as ${client.user.tag}`);
     console.log(`📡  Serving ${client.guilds.cache.size} guild(s)`);
     console.log(`⚡  Brawl Services™ Bot is online!\n`);
 
-    // Cache all guild invites on startup
+    // ── Cache all guild invites on startup ──────────────────────────────────
     for (const [, guild] of client.guilds.cache) {
       try {
         const invites = await guild.invites.fetch();
@@ -29,12 +29,15 @@ module.exports = {
       }
     }
 
-    // Rotate presence
+    // ── Start staff list auto-update (5-min interval) ───────────────────────
+    startStaffListAutoUpdate(client);
+
+    // ── Rotate presence ─────────────────────────────────────────────────────
     const statuses = [
-      { name: '⚡ Brawl Stars Boosting', type: ActivityType.Playing },
-      { name: '🏆 Rank Boosting Services', type: ActivityType.Watching },
-      { name: '/order create', type: ActivityType.Listening },
-      { name: '🎓 Coaching Sessions', type: ActivityType.Playing },
+      { name: '⚡ Brawl Stars Boosting',  type: ActivityType.Playing   },
+      { name: '🏆 Rank Boosting Services', type: ActivityType.Watching  },
+      { name: '/order create',             type: ActivityType.Listening },
+      { name: '🎓 Coaching Sessions',      type: ActivityType.Playing   },
     ];
     let i = 0;
     const setStatus = () => {
