@@ -138,12 +138,12 @@ module.exports = {
 
       try {
         // Panel navigation
-        if (id === 'panel_main')    return interaction.followUp({ ...panels.mainMenuPanel(), ephemeral: true });
-        if (id === 'panel_prices')  return interaction.editReply(panels.pricesPanel());
-        if (id === 'panel_order')   return interaction.editReply(panels.orderPanel());
-        if (id === 'panel_ticket')  return interaction.editReply(panels.ticketPanel());
-        if (id === 'panel_vouches') return interaction.editReply(panels.vouchPanel());
-
+        if (id === 'panel_main')    return interaction.followUp({ ...panels.mainMenuPanel(),  ephemeral: true });
+        if (id === 'panel_prices')  return interaction.followUp({ ...panels.pricesPanel(),    ephemeral: true });
+        if (id === 'panel_order')   return interaction.followUp({ ...panels.orderPanel(),     ephemeral: true });
+        if (id === 'panel_ticket')  return interaction.followUp({ ...panels.ticketPanel(),    ephemeral: true });
+        if (id === 'panel_vouches') return interaction.followUp({ ...panels.vouchPanel(),     ephemeral: true });
+        
         // Ticket actions
         if (id.startsWith('ticket_claim_')) {
           const channelId = id.replace('ticket_claim_', '');
