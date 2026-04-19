@@ -680,7 +680,8 @@ module.exports = {
             const { rows } = await db.query(`SELECT * FROM accounts WHERE status='available' ORDER BY price ASC LIMIT 8`);
             return interaction.editReply(panels.buyAccountPanel(rows));
           }
-          return interaction.editReply({ embeds: [base(COLORS.INFO).setTitle(`📦 Place Order`).setDescription(`Use \`/order create\` with service \`${service}\` to place your order!`)], components: [], files: [] });
+          // All boost/carry services — hand off to the step-by-step order flow
+          return interaction.followUp({ ...orderFlowServicePanel(), ephemeral: true });
         }
 
         if (id === 'cbk_type') {
