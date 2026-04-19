@@ -9,7 +9,7 @@ const { PRICING, COLORS, getEmojis, ORDER_STATUS } = require('../utils/constants
 const { base, success, error, orderEmbed } = require('../utils/embeds');
 const { isStaff, isBooster } = require('../utils/permissions');
 const { createTicket } = require('../utils/ticketManager');
-const { paymentPanel, claimOrderPanel } = require('../panels');
+const { paymentPanel } = require('../panels');
 const { v4: uuidv4 } = require('uuid');
 
 module.exports = {
