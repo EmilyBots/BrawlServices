@@ -101,6 +101,22 @@ module.exports = {
         embeds:  [boostEmbed(newMember, totalBoosters)],
       });
 
+      // ── Assign booster role ───────────────────────────────────────────────
+      const boosterRoleId = process.env.BOOSTER_ROLE_ID;
+      if (!boosterRoleId) {
+        console.warn('[Boost] BOOSTER_ROLE_ID is not set — skipping role assignment.');
+      } else {
+        const role = await newMember.guild.roles.fetch(boosterRoleId).catch(() => null);
+        if (!role) {
+          console.warn(`[Boost] Role ${boosterRoleId} not found — check BOOSTER_ROLE_ID.`);
+        } else {
+          await newMember.roles.add(role, 'Server boost reward').catch(err =>
+            console.error(`[Boost] Failed to assign booster role to ${newMember.user.tag}:`, err)
+          );
+          console.log(`[Boost] Assigned booster role to ${newMember.user.tag} (${newMember.id})`);
+        }
+      }
+
       console.log(`[Boost] Announced boost from ${newMember.user.tag} (${newMember.id})`);
 
     } catch (err) {
