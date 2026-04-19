@@ -429,14 +429,10 @@ module.exports = {
           await ticketChannel.send(`🎓 **Coaching session booked!**\n**Type:** ${pricing.label}\n**Date:** ${displayDate}\n**Time:** ${time} CET\n**Price:** €${pricing.price}\n\nComplete payment below to confirm your slot.`);
           const { paymentPanel } = require('../panels');
           await ticketChannel.send(paymentPanel(sessionId, pricing.price, `Coaching – ${pricing.label} on ${displayDate} at ${time}`));
-          if (process.env.ORDER_LOG_CHANNEL_ID) {
-            const logCh = interaction.guild.channels.cache.get(process.env.ORDER_LOG_CHANNEL_ID);
-            if (logCh) {
-              const { claimCoachingPanel } = require('../panels');
-              const { rows: [s] } = await db.query(`SELECT * FROM coaching_sessions WHERE id=$1`, [sessionId]);
-              if (s) logCh.send(claimCoachingPanel(s));
-            }
-          }
+          // AFTER – routes to COACHING_CLAIM_CHANNEL_ID
+          const { sendClaimPanel } = require('../utils/claimRouter');
+          const { rows: [s] } = await db.query(`SELECT * FROM coaching_sessions WHERE id=$1`, [sessionId]);
+          if (s) await sendClaimPanel(interaction.guild, s, 'coaching');
           return interaction.editReply({ embeds: [success('Booking Confirmed! 🎉', `**Session:** ${pricing.label}\n**Date:** ${displayDate}\n**Time:** ${time} CET\n**Price:** **€${pricing.price}**\n\n${em.TICKET} Ticket: ${ticketChannel}\n\nComplete payment in your ticket to lock in the slot!`)], components: [], files: [] });
         }
 
