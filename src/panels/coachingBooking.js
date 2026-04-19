@@ -67,7 +67,7 @@ function coachingMainPanel() {
   const em = getEmojis();
 
   const embed = base(COLORS.PRIMARY)
-    .setTitle(`# ${em.COACHING} Book a Coaching Session`)
+    .setTitle(`${em.COACHING} Book a Coaching Session`)
     .setDescription(
       `> Book a **1-on-1 coaching session** with one of our Pro players!\n\n` +
       `## 💰 Pricing\n` +
@@ -122,7 +122,7 @@ function coachingDayPanel(sessionType, yearMonth, bookedDateCounts = {}) {
   const now = new Date();
 
   const embed = base(COLORS.PRIMARY)
-    .setTitle(`# 📅 ${MONTH_NAMES[month]} ${year}`)
+    .setTitle(`📅 ${MONTH_NAMES[month]} ${year}`)
     .setDescription(
       `**Session:** ${pricing.label} — **€${pricing.price}**\n\n` +
       `> Click a day to see available time slots.\n` +
@@ -190,7 +190,7 @@ function coachingTimePanel(sessionType, dateStr, bookedTimes = []) {
   });
 
   const embed = base(COLORS.PRIMARY)
-    .setTitle(`# 🕐 Pick a Time Slot`)
+    .setTitle(`🕐 Pick a Time Slot`)
     .setDescription(
       `**Session:** ${pricing.label} — **€${pricing.price}**\n` +
       `**Date:** 📅 ${displayDate}\n` +
@@ -249,7 +249,7 @@ function coachingConfirmPanel(sessionType, dateStr, time) {
   });
 
   const embed = base(COLORS.PRIMARY)
-    .setTitle(`# ${em.CHECK} Confirm Your Booking`)
+    .setTitle(`${em.CHECK} Confirm Your Booking`)
     .setDescription(
       `> Review your details and confirm!\n\n` +
       `**📚 Session:** ${pricing.label}\n` +
