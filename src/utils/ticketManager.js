@@ -3,6 +3,7 @@ const { PermissionFlagsBits, ChannelType, ActionRowBuilder, ButtonBuilder, Butto
 const db = require('../database');
 const { getEmojis, COLORS } = require('./constants');
 const { base } = require('./embeds');
+const { logger } = require('./logger');
 const { v4: uuidv4 } = require('uuid');
 
 async function createTicket(guild, user, category = 'general', orderId = null, extraPerms = []) {
@@ -84,6 +85,11 @@ async function createTicket(guild, user, category = 'general', orderId = null, e
     }
   }
 
+  // Log ticket open
+  try {
+    logger.ticketOpen(channel.client, guild.id, user, channel, category);
+  } catch {}
+
   return channel;
 }
 
@@ -95,6 +101,13 @@ async function closeTicket(channel, closedBy, reason = 'No reason provided') {
 
   await channel.send({ embeds: [embed] });
   await db.query(`UPDATE tickets SET status='closed', closed_at=NOW() WHERE channel_id=$1`, [channel.id]);
+
+  // Log ticket close
+  try {
+    const { rows } = await db.query(`SELECT user_id FROM tickets WHERE channel_id=$1`, [channel.id]);
+    if (rows.length) logger.ticketClose(channel.client, channel.guild.id, `<@${rows[0].user_id}>`, channel, closedBy);
+  } catch {}
+
   setTimeout(() => channel.delete().catch(() => {}), 5000);
 }
 
