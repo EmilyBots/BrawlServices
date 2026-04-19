@@ -130,8 +130,36 @@ CREATE TABLE IF NOT EXISTS applications (
   reviewed_at TIMESTAMPTZ
 );
 
-CREATE INDEX IF NOT EXISTS idx_applications_user ON applications(user_id);
-CREATE INDEX IF NOT EXISTS idx_applications_status ON applications(status);
+CREATE TABLE IF NOT EXISTS invites (
+  invite_code VARCHAR(20) PRIMARY KEY,
+  guild_id VARCHAR(20) NOT NULL,
+  inviter_id VARCHAR(20) NOT NULL,
+  uses INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS invite_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  guild_id VARCHAR(20) NOT NULL,
+  user_id VARCHAR(20) NOT NULL,
+  inviter_id VARCHAR(20),
+  invite_code VARCHAR(20),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS partnerships (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id VARCHAR(20) NOT NULL,
+  guild_id VARCHAR(20) NOT NULL,
+  status VARCHAR(20) DEFAULT 'pending',
+  review_message_id VARCHAR(20),
+  review_channel_id VARCHAR(20),
+  answers JSONB NOT NULL,
+  reviewer_id VARCHAR(20),
+  reviewer_notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  reviewed_at TIMESTAMPTZ
+);
 
 CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
@@ -139,6 +167,11 @@ CREATE INDEX IF NOT EXISTS idx_tickets_channel ON tickets(channel_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_user ON tickets(user_id);
 CREATE INDEX IF NOT EXISTS idx_vouches_user ON vouches(user_id);
 CREATE INDEX IF NOT EXISTS idx_payments_order ON payments(order_id);
+CREATE INDEX IF NOT EXISTS idx_applications_user ON applications(user_id);
+CREATE INDEX IF NOT EXISTS idx_applications_status ON applications(status);
+CREATE INDEX IF NOT EXISTS idx_invites_guild ON invites(guild_id);
+CREATE INDEX IF NOT EXISTS idx_invite_logs_user ON invite_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_partnerships_status ON partnerships(status);
 `;
 
 async function migrate() {
