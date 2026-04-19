@@ -14,6 +14,9 @@ const {
   getPrice,
 } = require('../panels/orderFlow');
 
+// ── Giveaway system ────────────────────────────────────────────────────────
+const giveaway = require('./giveaway');
+
 const APP_QUESTIONS = {
   staff:   ['What is your age and timezone?', 'Hours per week available for staff duties?', 'Previous Discord mod/staff experience?', 'Why do you want to be Staff at Brawl Services™?', 'How would you handle a customer vs booster dispute?'],
   booster: ['Current rank and highest rank reached?', 'Hours per week available for boosting?', 'Previous boosting experience?', 'Best brawlers and game modes?', 'Why do you want to boost for Brawl Services™?'],
@@ -48,6 +51,13 @@ module.exports = {
     // ─────────────────────────────────────────────────────────────────────────
     if (interaction.isButton()) {
       const id = interaction.customId;
+
+      // ── Giveaway buttons — must be caught BEFORE deferUpdate ──────────────
+      // These handlers call deferReply({ ephemeral: true }) internally,
+      // so they cannot go through the generic deferUpdate() below.
+      if (id === 'giveaway_enter' || id.startsWith('gpanel_')) {
+        return giveaway.handleButton(interaction);
+      }
 
       // --- Buttons that need showModal BEFORE deferUpdate ---
       if (id === 'vouch_submit') {
