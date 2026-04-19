@@ -223,25 +223,48 @@ function vouchPanel() {
 // ─── CLAIM ORDER PANEL (STAFF) ─────────────────────────────────────────────
 function claimOrderPanel(order) {
   const em = getEmojis();
-  const embed = base(COLORS.WARNING)
-    .setTitle(`${em.BOOST} New Order Available`)
+  const price = parseFloat(order.price);
+
+  // Determine boost vs carry from service_type or boost_type
+  const isCarry = order.boost_type === 'carry'
+    || order.service_type?.toLowerCase().includes('carry');
+  const typeLabel  = isCarry ? '🤝 Carry'  : '⚡ Boost';
+  const typeColor  = isCarry ? 0x5865F2    : 0xFEE75C;   // blurple vs yellow
+
+  // Split breakdown – all booster tiers so staff can see their exact cut
+  const splits = [
+    { label: 'Booster',        pct: 60 },
+    { label: 'Senior Booster', pct: 65 },
+    { label: 'Global Booster', pct: 70 },
+    { label: 'Co-Owner',       pct: 85 },
+  ];
+
+  const splitsText = splits
+    .map(s => `> **${s.label}** (${s.pct}%) — **€${(price * s.pct / 100).toFixed(2)}**`)
+    .join('\n');
+
+  const embed = base(typeColor)
+    .setTitle(`${isCarry ? '🤝' : '⚡'} New ${typeLabel} Order Available`)
     .setDescription(
       `> A new order is ready to be claimed!\n\n` +
-      `**Order ID:** \`#${order.id.slice(0,8).toUpperCase()}\`\n` +
+      `**Order ID:** \`#${order.id.slice(0, 8).toUpperCase()}\`\n` +
       `**Customer:** <@${order.user_id}>\n` +
       `**Service:** ${order.service_type}\n` +
-      `**Type:** ${order.boost_type?.toUpperCase()}\n` +
-      `**Route:** ${order.from_rank || ''} **→** ${order.to_rank || ''}\n` +
-      `**Price:** **€${Number(order.price).toFixed(2)}**\n\n` +
-      `*Click below to claim this order!*`
+      `**Type:** ${typeLabel}\n` +
+      `**Route:** ${order.from_rank || '—'} **→** ${order.to_rank || '—'}\n` +
+      `**Order Total:** **€${price.toFixed(2)}**\n\n` +
+      `💰 **Your Earnings by Role:**\n${splitsText}\n\n` +
+      `*Click below to claim — first come, first served!*`
     )
-    .setThumbnail('attachment://logo.png');
+    .setThumbnail('attachment://logo.png')
+    .setFooter({ text: 'Brawl Services™ • Splits are final and non-negotiable' })
+    .setTimestamp();
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`claim_order_${order.id}`)
       .setLabel('Claim Order')
-      .setEmoji('⚡')
+      .setEmoji(isCarry ? '🤝' : '⚡')
       .setStyle(ButtonStyle.Success),
   );
 
@@ -251,18 +274,43 @@ function claimOrderPanel(order) {
 // ─── CLAIM COACHING PANEL ──────────────────────────────────────────────────
 function claimCoachingPanel(session) {
   const em = getEmojis();
-  const embed = base(COLORS.WARNING)
-    .setTitle(`${em.COACHING} Coaching Session Available`)
+  const price = parseFloat(session.price);
+
+  // Split breakdown – coach tiers only
+  const splits = [
+    { label: 'Coach / Trainer', pct: 60 },
+    { label: 'Trainer Expert',  pct: 65 },
+    { label: 'Co-Owner',        pct: 85 },
+  ];
+
+  const splitsText = splits
+    .map(s => `> **${s.label}** (${s.pct}%) — **€${(price * s.pct / 100).toFixed(2)}**`)
+    .join('\n');
+
+  const scheduledStr = session.scheduled_at
+    ? new Date(session.scheduled_at).toLocaleString('en-GB', {
+        weekday: 'long', day: 'numeric', month: 'long',
+        year: 'numeric', hour: '2-digit', minute: '2-digit',
+        timeZone: 'CET',
+      }) + ' CET'
+    : 'TBC';
+
+  const embed = base(COLORS.INFO)
+    .setTitle(`🎓 Coaching Session Available`)
     .setDescription(
-      `> A coaching session is available!\n\n` +
-      `**Session ID:** \`#${session.id.slice(0,8).toUpperCase()}\`\n` +
+      `> A coaching session is ready to be claimed!\n\n` +
+      `**Session ID:** \`#${session.id.slice(0, 8).toUpperCase()}\`\n` +
       `**Student:** <@${session.user_id}>\n` +
       `**Type:** ${session.session_type}\n` +
       `**Duration:** ${session.duration_hours}h\n` +
-      `**Price:** **€${Number(session.price).toFixed(2)}**\n\n` +
-      `*Click below to claim this session!*`
+      `**Scheduled:** ${scheduledStr}\n` +
+      `**Order Total:** **€${price.toFixed(2)}**\n\n` +
+      `💰 **Your Earnings by Role:**\n${splitsText}\n\n` +
+      `*Click below to claim — first come, first served!*`
     )
-    .setThumbnail('attachment://logo.png');
+    .setThumbnail('attachment://logo.png')
+    .setFooter({ text: 'Brawl Services™ • Splits are final and non-negotiable' })
+    .setTimestamp();
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
