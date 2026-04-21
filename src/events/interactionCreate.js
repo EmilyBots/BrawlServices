@@ -15,7 +15,7 @@ const {
 } = require('../panels/orderFlow');
 
 // ── Giveaway system ────────────────────────────────────────────────────────
-const giveaway = require('./giveaway');
+const giveaway = require('../commands/giveaway');
 
 const APP_QUESTIONS = {
   staff:   ['What is your age and timezone?', 'Hours per week available for staff duties?', 'Previous Discord mod/staff experience?', 'Why do you want to be Staff at Brawl Services™?', 'How would you handle a customer vs booster dispute?'],
