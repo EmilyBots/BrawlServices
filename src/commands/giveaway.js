@@ -1073,10 +1073,8 @@ module.exports = {
     }
   },
 
-  // Button interactions — forward from your interactionCreate event
-  async handleButton(interaction) {
+async handleButton(interaction) {
     try {
-      await ensureTables();
       await handleButton(interaction);
     } catch (err) {
       console.error('[Giveaway] Button error:', err);
@@ -1086,4 +1084,3 @@ module.exports = {
         : await interaction.reply(reply).catch(() => null);
     }
   },
-};
